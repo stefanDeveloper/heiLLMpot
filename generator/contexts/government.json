@@ -1,0 +1,33 @@
+{
+  "context_name": "government",
+  "org_types": [
+    "Citizen services / e-government portal",
+    "Tax filing and payment portal",
+    "Business registration and licensing system",
+    "Social services / benefits management portal",
+    "Public procurement / tender system",
+    "Court case management portal",
+    "Law enforcement data access portal",
+    "Municipal permit and inspection system",
+    "Internal government HR / payroll portal",
+    "Defense / military personnel portal",
+    "Election administration system",
+    "Public health reporting dashboard"
+  ],
+  "user_roles": ["admin", "citizen", "officer", "clerk", "auditor", "supervisor"],
+  "name_style": "official government names and titles appropriate for the country",
+  "brand_color": "#1f4e79",
+  "logo_url": "",
+  "os_options": [
+    "Red Hat Enterprise Linux 9",
+    "Ubuntu 22.04 LTS",
+    "Debian 12 (Bookworm)"
+  ],
+  "ssh_banner_options": [
+    "SSH-2.0-OpenSSH_8.7p1",
+    "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3",
+    "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5"
+  ],
+  "tls_country": "",
+  "notes": "Government and public sector portals with official naming conventions."
+}

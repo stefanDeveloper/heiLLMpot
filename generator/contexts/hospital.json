@@ -1,0 +1,33 @@
+{
+  "context_name": "hospital",
+  "org_types": [
+    "Electronic health records (EHR) portal",
+    "Patient scheduling and appointment system",
+    "Medical imaging (PACS) web viewer",
+    "Pharmacy management portal",
+    "Clinical staff intranet / shift scheduling",
+    "Laboratory information system (LIS)",
+    "Hospital billing and insurance portal",
+    "VPN / remote access for clinical staff",
+    "IT helpdesk for medical devices",
+    "Radiology reporting portal",
+    "ICU monitoring dashboard (web interface)",
+    "Nursing staff communication portal"
+  ],
+  "user_roles": ["admin", "doctor", "nurse", "pharmacist", "lab_technician", "receptionist"],
+  "name_style": "medical professional names appropriate for the country",
+  "brand_color": "#006ba6",
+  "logo_url": "",
+  "os_options": [
+    "Red Hat Enterprise Linux 9",
+    "Ubuntu 22.04 LTS",
+    "Windows Server 2022"
+  ],
+  "ssh_banner_options": [
+    "SSH-2.0-OpenSSH_8.7p1",
+    "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3",
+    "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"
+  ],
+  "tls_country": "",
+  "notes": "Healthcare portals: EHR, PACS, scheduling. HIPAA/GDPR-aware naming."
+}

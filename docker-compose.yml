@@ -1,0 +1,74 @@
+services:
+  # ─── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: honeypot_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       honeypot_db
+      POSTGRES_USER:     orchestrator_app
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orchestrator_app -d honeypot_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Orchestrator (Oat++ C++) ────────────────────────────────────────────────
+  orchestrator:
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile
+    container_name: honeypot_orchestrator
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Override config values via env (orchestrator reads orchestrator.json;
+      # the Dockerfile COPY puts it in the image, but these override at runtime)
+      DB_HOST:     postgres
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - ./orchestrator/config/orchestrator.json:/app/config/orchestrator.json:ro
+      - ./certs/server.crt:/app/certs/server.crt:ro
+      - ./certs/server.key:/app/certs/server.key:ro
+      - ./certs/ca.crt:/app/certs/ca.crt:ro
+      - geoip_data:/usr/share/GeoIP:ro
+    networks:
+      - internal
+    expose:
+      - "8080"
+
+  # ─── Nginx (TLS + mTLS termination) ─────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: honeypot_nginx
+    restart: unless-stopped
+    depends_on:
+      - orchestrator
+    ports:
+      - "443:443"
+      - "80:80"         # redirect to 443
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs/server.crt:/etc/nginx/ssl/server.crt:ro
+      - ./certs/server.key:/etc/nginx/ssl/server.key:ro
+      - ./certs/ca.crt:/etc/nginx/ssl/ca.crt:ro
+    networks:
+      - internal
+      - external
+
+volumes:
+  postgres_data:
+  geoip_data:
+
+networks:
+  internal:
+    driver: bridge
+  external:
+    driver: bridge

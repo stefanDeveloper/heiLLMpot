@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "honeybot",
+  "version": "1.0.0",
+  "description": "Worldwide honeypot node — HTTP + SSH honeypot with orchestrator forwarding",
+  "license": "MIT",
+  "supports": "linux",
+  "dependencies": [
+    "cpp-httplib",
+    "nlohmann-json",
+    "openssl",
+    "libssh"
+  ]
+}

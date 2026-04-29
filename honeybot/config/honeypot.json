@@ -1,0 +1,57 @@
+{
+  "log_file": "honeypot.log",
+  "http": {
+    "enabled": true,
+    "listen_addr": "0.0.0.0",
+    "http_port": 8081,
+    "https_port": 8443,
+    "enable_https": true,
+    "cert_path": "",
+    "key_path": "",
+    "sites_dir": "./generated_sites",
+    "fingerprint_profile": "apache_2_4",
+    "jitter_min_ms": 20,
+    "jitter_max_ms": 200,
+    "rotate_sites": false,
+    "tls": {
+      "cn": "",
+      "organization": "",
+      "country": "",
+      "state": "",
+      "locality": ""
+    }
+  },
+  "ssh": {
+    "enabled": true,
+    "listen_addr": "0.0.0.0",
+    "port": 2222,
+    "host_key_path": "",
+    "banner": "",
+    "hostname": "",
+    "os_version": "",
+    "admin_user": "",
+    "ip_address": "",
+    "domain": "",
+    "organization": ""
+  },
+  "generator": {
+    "ollama_url": "http://localhost:11434",
+    "default_model": "llama3.2:3b",
+    "default_count": 5,
+    "default_context": "university",
+    "default_language": "English",
+    "default_country": ""
+  },
+  "orchestrator": {
+    "enabled": true,
+    "url": "http://localhost:8080",
+    "node_id": "node-eu-west-1",
+    "jwt_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzQwMDQ4NjAsImlhdCI6MTc3MzkxODQ2MCwiaXNzIjoiaG9uZXlwb3Qtb3JjaGVzdHJhdG9yIiwibm9kZV9pZCI6Im5vZGUtZXUtd2VzdC0xIiwicmVnaW9uIjoiZXUtd2VzdC0xIiwic3ViIjoibm9kZS1ldS13ZXN0LTEifQ.cp8tnq5IFluq_jfXMHLCRltpouJpu5N8Nhb9KaZxIzw",
+    "client_cert": "certs/node.crt",
+    "client_key": "certs/node.key",
+    "ca_cert": "certs/ca.crt",
+    "batch_size": 50,
+    "flush_interval_sec": 10,
+    "max_retries": 3
+  }
+}

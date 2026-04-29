@@ -1,0 +1,33 @@
+{
+  "context_name": "bank",
+  "org_types": [
+    "Online banking portal (retail)",
+    "Corporate treasury management system",
+    "Loan origination and approval portal",
+    "Trade finance and letters of credit portal",
+    "Internal compliance and AML monitoring dashboard",
+    "ATM and branch management console",
+    "Customer support / CRM portal",
+    "Investment banking deal room portal",
+    "Back-office payment processing dashboard",
+    "KYC / identity verification portal",
+    "Fraud detection alert console",
+    "Staff intranet / HR self-service"
+  ],
+  "user_roles": ["admin", "teller", "loan_officer", "compliance_officer", "relationship_manager", "customer"],
+  "name_style": "professional financial sector names appropriate for the country",
+  "brand_color": "#1a3a6b",
+  "logo_url": "",
+  "os_options": [
+    "Red Hat Enterprise Linux 9",
+    "SUSE Linux Enterprise Server 15",
+    "Windows Server 2022"
+  ],
+  "ssh_banner_options": [
+    "SSH-2.0-OpenSSH_8.7p1",
+    "SSH-2.0-OpenSSH_9.3p1",
+    "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"
+  ],
+  "tls_country": "",
+  "notes": "Financial institution portals with realistic banking workflows."
+}

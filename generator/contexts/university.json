@@ -1,0 +1,33 @@
+{
+  "context_name": "university",
+  "org_types": [
+    "Microsoft Exchange OWA (Outlook Web Access)",
+    "Webmail service (Roundcube, Horde, etc.)",
+    "Student information system / course enrollment portal",
+    "Research data management portal",
+    "Library catalog and search system",
+    "VPN / Network access portal",
+    "IT helpdesk / ticket system",
+    "File sharing service (Nextcloud-like)",
+    "Internal wiki / knowledge base",
+    "Exam registration portal",
+    "Human resources self-service portal",
+    "Campus event management system"
+  ],
+  "user_roles": ["admin", "student", "professor", "staff", "researcher"],
+  "name_style": "mix of local and international university names appropriate for the country",
+  "brand_color": "#003580",
+  "logo_url": "",
+  "os_options": [
+    "Ubuntu 24.04 LTS",
+    "Ubuntu 22.04 LTS",
+    "Debian 12 (Bookworm)"
+  ],
+  "ssh_banner_options": [
+    "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5",
+    "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3",
+    "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"
+  ],
+  "tls_country": "",
+  "notes": "Realistic university portals: student/staff login, LMS, research portals."
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "honeypot-orchestrator",
+  "version": "1.0.0",
+  "description": "Central orchestrator for the worldwide honeypot network",
+  "license": "MIT",
+  "supports": "linux",
+  "dependencies": [
+    "oatpp",
+    "oatpp-swagger",
+    "openssl",
+    "nlohmann-json",
+    "jwt-cpp",
+    "picojson"
+  ]
+}
