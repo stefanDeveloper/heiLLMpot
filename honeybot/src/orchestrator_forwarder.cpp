@@ -2,8 +2,15 @@
 #include <algorithm>
 #include <cctype>
 #include <iostream>
+#include <string>
 
 namespace {
+
+struct ParsedUrl {
+    bool https = false;
+    std::string host;
+    int port = 80;
+};
 
 std::string lower(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(),
@@ -45,6 +52,57 @@ std::string firstSessionRef(const nlohmann::json& value) {
     return "";
 }
 
+int parsePort(const std::string& value, int fallback) {
+    try {
+        size_t parsed = 0;
+        int port = std::stoi(value, &parsed);
+        if (parsed == value.size() && port > 0 && port <= 65535) {
+            return port;
+        }
+    } catch (...) {
+    }
+    return fallback;
+}
+
+ParsedUrl parseOrchestratorUrl(const std::string& url) {
+    ParsedUrl parsed;
+    std::string rest = url;
+
+    if (rest.rfind("https://", 0) == 0) {
+        parsed.https = true;
+        parsed.port = 443;
+        rest = rest.substr(8);
+    } else if (rest.rfind("http://", 0) == 0) {
+        rest = rest.substr(7);
+    }
+
+    auto slash = rest.find('/');
+    if (slash != std::string::npos) {
+        rest = rest.substr(0, slash);
+    }
+
+    if (!rest.empty() && rest.front() == '[') {
+        auto close = rest.find(']');
+        if (close != std::string::npos) {
+            parsed.host = rest.substr(1, close - 1);
+            if (close + 1 < rest.size() && rest[close + 1] == ':') {
+                parsed.port = parsePort(rest.substr(close + 2), parsed.port);
+            }
+            return parsed;
+        }
+    }
+
+    auto colon = rest.rfind(':');
+    if (colon != std::string::npos && rest.find(':') == colon) {
+        parsed.host = rest.substr(0, colon);
+        parsed.port = parsePort(rest.substr(colon + 1), parsed.port);
+    } else {
+        parsed.host = rest;
+    }
+
+    return parsed;
+}
+
 }  // namespace
 
 // ─── Construction / destruction ───────────────────────────────────────────────
@@ -69,30 +127,17 @@ void OrchestratorForwarder::stop() {
 
 void OrchestratorForwarder::buildClient() {
     const std::string& url = m_cfg.url;
-    const bool isHttps     = (url.rfind("https://", 0) == 0);
+    const auto endpoint = parseOrchestratorUrl(url);
 
-    if (isHttps) {
+    if (endpoint.https) {
         // Build an SSLClient and capture it in the lambda.
-        // Parse host and port from the URL.
         auto ssl = [&]() -> std::shared_ptr<httplib::SSLClient> {
-            std::string host;
-            int port = 443;
-            auto pos = url.find("://");
-            std::string rest = (pos != std::string::npos) ? url.substr(pos + 3) : url;
-            auto colon = rest.rfind(':');
-            if (colon != std::string::npos) {
-                host = rest.substr(0, colon);
-                port = std::stoi(rest.substr(colon + 1));
-            } else {
-                host = rest;
-            }
-
             std::shared_ptr<httplib::SSLClient> c;
             if (!m_cfg.client_cert.empty() && !m_cfg.client_key.empty()) {
                 c = std::make_shared<httplib::SSLClient>(
-                    host, port, m_cfg.client_cert, m_cfg.client_key);
+                    endpoint.host, endpoint.port, m_cfg.client_cert, m_cfg.client_key);
             } else {
-                c = std::make_shared<httplib::SSLClient>(host, port);
+                c = std::make_shared<httplib::SSLClient>(endpoint.host, endpoint.port);
             }
             if (!m_cfg.ca_cert.empty()) {
                 c->set_ca_cert_path(m_cfg.ca_cert.c_str());
@@ -113,8 +158,7 @@ void OrchestratorForwarder::buildClient() {
         };
     } else {
         // Plain HTTP — used for local development.
-        // httplib::Client(scheme://host:port) auto-detects the port.
-        auto cli = std::make_shared<httplib::Client>(url);
+        auto cli = std::make_shared<httplib::Client>(endpoint.host, endpoint.port);
         cli->set_connection_timeout(10);
         cli->set_read_timeout(15);
 

@@ -22,8 +22,13 @@ COPY config/ config/
 RUN cmake -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake \
-    -DOATPP_SWAGGER_RES_PATH=/build/build/vcpkg_installed/x64-linux/share/oatpp-swagger/res \
+    -DOATPP_SWAGGER_RES_PATH=/app/oatpp-swagger/res \
     && cmake --build build --parallel $(nproc)
+
+RUN swagger_res="$(find /build/build/vcpkg_installed -path '*/bin/oatpp-swagger/res' -type d | head -n 1)" \
+    && test -f "${swagger_res}/favicon-16x16.png" \
+    && mkdir -p /build/oatpp-swagger \
+    && cp -a "${swagger_res}" /build/oatpp-swagger/res
 
 # ─── Stage 2: runtime ────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
@@ -36,6 +41,7 @@ WORKDIR /app
 COPY --from=builder /build/build/orchestrator /app/orchestrator
 COPY --from=builder /build/sql               /app/sql
 COPY --from=builder /build/config            /app/config
+COPY --from=builder /build/oatpp-swagger/res /app/oatpp-swagger/res
 
 RUN mkdir -p /app/certs /usr/share/GeoIP
 

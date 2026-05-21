@@ -26,10 +26,9 @@ find_path(MAXMINDDB_INCLUDE_DIR maxminddb.h REQUIRED)
 # jwt-cpp (header-only; from vcpkg)
 find_path(JWT_CPP_INCLUDE_DIR jwt-cpp/jwt.h REQUIRED)
 
-# Copy Swagger resources if available
-add_definitions(
-    -DOATPP_SWAGGER_RES_PATH="${oatpp-swagger_INCLUDE_DIRS}/../bin/oatpp-swagger/res"
-)
+set(OATPP_SWAGGER_RES_PATH
+    "${oatpp-swagger_INCLUDE_DIRS}/../bin/oatpp-swagger/res"
+    CACHE PATH "Path to oatpp-swagger static UI resources")
 
 # ─── Orchestrator executable ──────────────────────────────────────────────────
 add_executable(orchestrator
@@ -56,6 +55,10 @@ target_link_libraries(orchestrator PRIVATE
     nlohmann_json::nlohmann_json
     ${PostgreSQL_LIBRARIES}
     ${MAXMINDDB_LIBRARY}
+)
+
+target_compile_definitions(orchestrator PRIVATE
+    OATPP_SWAGGER_RES_PATH="${OATPP_SWAGGER_RES_PATH}"
 )
 
 # Copy config and migration files to build directory
