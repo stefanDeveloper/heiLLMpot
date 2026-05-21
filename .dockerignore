@@ -3,6 +3,8 @@
 certs
 generated_sites
 analysis/output
+local-default.json
+*_*.json
 **/build
 **/CMakeFiles
 **/_deps

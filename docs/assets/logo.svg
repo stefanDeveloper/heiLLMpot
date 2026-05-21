@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
+  <title id="title">heiLLMpot logo</title>
+  <desc id="desc">A dark banner logo for heiLLMpot with a shield, circuit trace, and wordmark.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="0.55" stop-color="#0e1f2f"/>
+      <stop offset="1" stop-color="#172033"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#48e5c2"/>
+      <stop offset="0.55" stop-color="#61a5ff"/>
+      <stop offset="1" stop-color="#f6c453"/>
+    </linearGradient>
+    <filter id="soft-glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="320" rx="36" fill="url(#bg)"/>
+  <path d="M64 236 C188 154 250 282 366 196 C486 107 576 105 708 161 C834 215 928 110 1138 188" fill="none" stroke="#1d3a50" stroke-width="3" opacity=".75"/>
+  <path d="M85 87 H1115" stroke="#243b53" stroke-width="1"/>
+  <path d="M85 235 H1115" stroke="#243b53" stroke-width="1"/>
+
+  <g transform="translate(104 55)">
+    <path d="M97 0 L181 35 V103 C181 154 147 194 97 216 C47 194 13 154 13 103 V35 Z" fill="#0b1828" stroke="url(#accent)" stroke-width="7"/>
+    <path d="M97 24 L153 48 V103 C153 138 132 166 97 183 C62 166 41 138 41 103 V48 Z" fill="#102236" stroke="#254860" stroke-width="2"/>
+    <path d="M73 94 H121 C132 94 140 102 140 113 V127 C140 138 132 146 121 146 H73 C62 146 54 138 54 127 V113 C54 102 62 94 73 94 Z" fill="#07111f" stroke="#48e5c2" stroke-width="4"/>
+    <path d="M73 93 V73 C73 56 83 45 98 45 C113 45 123 56 123 73 V93" fill="none" stroke="#61a5ff" stroke-width="8" stroke-linecap="round"/>
+    <path d="M98 114 V132" stroke="#f6c453" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="98" cy="110" r="7" fill="#f6c453"/>
+
+    <path d="M150 64 H188 M188 64 V36 M150 154 H189 M189 154 V184 M45 64 H5 M5 64 V33 M45 154 H7 M7 154 V185" fill="none" stroke="#61a5ff" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="188" cy="36" r="7" fill="#48e5c2" filter="url(#soft-glow)"/>
+    <circle cx="189" cy="184" r="7" fill="#f6c453" filter="url(#soft-glow)"/>
+    <circle cx="5" cy="33" r="7" fill="#f6c453" filter="url(#soft-glow)"/>
+    <circle cx="7" cy="185" r="7" fill="#48e5c2" filter="url(#soft-glow)"/>
+  </g>
+
+  <g transform="translate(355 83)">
+    <text x="0" y="67" fill="#f8fbff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="74" font-weight="800" letter-spacing="0">
+      hei<tspan fill="#48e5c2">LLM</tspan>pot
+    </text>
+    <rect x="2" y="92" width="572" height="2" fill="url(#accent)" opacity=".95"/>
+    <text x="0" y="136" fill="#b9c7d8" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="25" font-weight="500" letter-spacing=".2">
+      LLM-assisted deception portals for defensive research
+    </text>
+    <g transform="translate(0 172)" font-family="JetBrains Mono, Consolas, monospace" font-size="18" font-weight="600">
+      <rect x="0" y="-25" width="168" height="38" rx="8" fill="#0b1828" stroke="#254860"/>
+      <text x="18" y="0" fill="#48e5c2">generator</text>
+      <path d="M178 -7 H220" stroke="#40627d" stroke-width="3" stroke-linecap="round"/>
+      <rect x="230" y="-25" width="142" height="38" rx="8" fill="#0b1828" stroke="#254860"/>
+      <text x="249" y="0" fill="#61a5ff">honeybot</text>
+      <path d="M382 -7 H424" stroke="#40627d" stroke-width="3" stroke-linecap="round"/>
+      <rect x="434" y="-25" width="176" height="38" rx="8" fill="#0b1828" stroke="#254860"/>
+      <text x="453" y="0" fill="#f6c453">orchestrator</text>
+    </g>
+  </g>
+</svg>

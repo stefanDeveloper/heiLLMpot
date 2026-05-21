@@ -64,6 +64,13 @@ vcpkg_installed/
 *.log
 generated_sites/*.json
 analysis/output/
+/local-default.json
+/*_*.json
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
 
 # Python
 __pycache__/
