@@ -1,0 +1,11 @@
+build
+CMakeFiles
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+vcpkg_installed
+*.log
+*.pem
+*.key
+*.crt
+__pycache__

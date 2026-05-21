@@ -1,0 +1,15 @@
+.git
+.env
+certs
+generated_sites
+analysis/output
+**/build
+**/CMakeFiles
+**/_deps
+**/vcpkg
+**/vcpkg_installed
+**/__pycache__
+*.log
+*.pem
+*.key
+*.crt

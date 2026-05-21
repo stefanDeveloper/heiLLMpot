@@ -1,0 +1,53 @@
+COMPOSE ?= docker compose
+NODE_ID ?= node-local-1
+ORCHESTRATOR_URL ?= http://localhost:8080
+ANALYSIS_OUT ?= analysis/output
+HONEYPOT_LOG ?= honeybot/honeypot.log
+
+ifneq (,$(wildcard .env))
+include .env
+export
+endif
+
+.PHONY: env certs up down logs ps register-node up-node analyze db-analysis db-shell clean-analysis
+
+env:
+	@test -f .env || cp .env.example .env
+	@echo "Using .env (edit secrets before public deployment)."
+
+certs:
+	@ORCHESTRATOR_CN=$${ORCHESTRATOR_CN:-localhost} bash scripts/gen_pki.sh $(NODE_ID)
+
+up: env certs
+	$(COMPOSE) up -d --build postgres orchestrator nginx
+
+up-node: env certs
+	$(COMPOSE) --profile node up -d --build honeybot
+
+down:
+	$(COMPOSE) down
+
+logs:
+	$(COMPOSE) logs -f --tail=200
+
+ps:
+	$(COMPOSE) ps
+
+register-node:
+	python3 scripts/register_node.py \
+		--url $(ORCHESTRATOR_URL) \
+		--node-id $(NODE_ID) \
+		--api-key "$${NODE_API_KEY:-dev-api-key}" \
+		--env-file .env
+
+analyze:
+	python3 scripts/analyze_honeypot.py --log-file $(HONEYPOT_LOG) --out $(ANALYSIS_OUT)
+
+db-analysis:
+	$(COMPOSE) exec -T postgres psql -U $${DB_USER:-orchestrator_app} -d $${DB_NAME:-honeypot_db} < analysis/summary.sql
+
+db-shell:
+	$(COMPOSE) exec postgres psql -U $${DB_USER:-orchestrator_app} -d $${DB_NAME:-honeypot_db}
+
+clean-analysis:
+	rm -rf $(ANALYSIS_OUT)

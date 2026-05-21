@@ -16,6 +16,8 @@ class EventDto : public oatpp::DTO {
     DTO_FIELD(String, event_type);        // "request" | "credential" | "command" | …
     DTO_FIELD(String, timestamp);         // ISO-8601 from the honeypot logger
     DTO_FIELD(String, session_ref);       // session_id / connection_id
+    DTO_FIELD(String, session_id);        // legacy/local HTTP field
+    DTO_FIELD(String, connection_id);     // legacy/local SSH field
     DTO_FIELD(String, client_ip);
     DTO_FIELD(Int32,  client_port);
 

@@ -1,5 +1,51 @@
 #include "orchestrator_forwarder.h"
+#include <algorithm>
+#include <cctype>
 #include <iostream>
+
+namespace {
+
+std::string lower(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return value;
+}
+
+std::string normalizeProtocol(const std::string& value) {
+    auto protocol = lower(value);
+    if (protocol == "http" || protocol == "ssh") return protocol;
+    return "unknown";
+}
+
+std::string normalizeEventType(const std::string& value) {
+    auto eventType = lower(value);
+    if (eventType == "login") return "credential";
+    return eventType;
+}
+
+bool isForwardableEvent(const std::string& eventType) {
+    return eventType == "request" ||
+           eventType == "credential" ||
+           eventType == "command" ||
+           eventType == "connect" ||
+           eventType == "disconnect";
+}
+
+std::string stringField(const nlohmann::json& value, const char* key) {
+    auto it = value.find(key);
+    if (it == value.end() || !it->is_string()) return "";
+    return it->get<std::string>();
+}
+
+std::string firstSessionRef(const nlohmann::json& value) {
+    for (const char* key : {"session_ref", "session_id", "connection_id"}) {
+        auto candidate = stringField(value, key);
+        if (!candidate.empty()) return candidate;
+    }
+    return "";
+}
+
+}  // namespace
 
 // ─── Construction / destruction ───────────────────────────────────────────────
 
@@ -132,13 +178,26 @@ void OrchestratorForwarder::flush(std::deque<nlohmann::json>& batch) {
 
     for (auto& entry : batch) {
         nlohmann::json ev = entry.value("data", nlohmann::json::object());
+        if (!ev.is_object()) continue;
+
+        const auto protocol = normalizeProtocol(entry.value("protocol", "unknown"));
+        const auto eventType = normalizeEventType(entry.value("event", ""));
+        const auto sessionRef = firstSessionRef(ev);
+
+        if (!isForwardableEvent(eventType) || sessionRef.empty()) {
+            continue;
+        }
+
         ev["node_id"]    = m_cfg.node_id;
-        ev["protocol"]   = entry.value("protocol", "unknown");
-        ev["event_type"] = entry.value("event", "");
+        ev["protocol"]   = protocol;
+        ev["event_type"] = eventType;
         ev["timestamp"]  = entry.value("timestamp", "");
+        ev["session_ref"] = sessionRef;
         ev["raw_json"]   = entry.dump();
         payload["events"].push_back(std::move(ev));
     }
+
+    if (payload["events"].empty()) return;
 
     if (!postBatch(payload)) {
         // Re-queue on failure (drop oldest if queue is huge to avoid OOM)

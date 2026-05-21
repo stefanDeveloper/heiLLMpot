@@ -13,6 +13,7 @@
 
 #include "auth/NodeAuthInterceptor.hpp"
 #include "controller/EventController.hpp"
+#include "controller/HealthController.hpp"
 #include "controller/NodeController.hpp"
 #include "controller/StatsController.hpp"
 #include "controller/SessionController.hpp"
@@ -25,6 +26,7 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <csignal>
+#include <cstdlib>
 #include <iostream>
 #include <thread>
 #include <atomic>
@@ -36,12 +38,50 @@ void signalHandler(int sig) {
     g_running = false;
 }
 
+namespace {
+
+std::string envString(const char* name, const std::string& current) {
+    const char* value = std::getenv(name);
+    if (!value || value[0] == '\0') return current;
+    return value;
+}
+
+int envInt(const char* name, int current) {
+    const char* value = std::getenv(name);
+    if (!value || value[0] == '\0') return current;
+    try {
+        return std::stoi(value);
+    } catch (...) {
+        std::cerr << "[!] Ignoring invalid integer env var " << name
+                  << "=" << value << "\n";
+        return current;
+    }
+}
+
+void applyEnvOverrides(const std::shared_ptr<OrchestratorConfig>& cfg) {
+    cfg->listen_addr         = envString("LISTEN_ADDR", cfg->listen_addr);
+    cfg->port                = envInt("PORT", cfg->port);
+    cfg->jwt_secret          = envString("JWT_SECRET", cfg->jwt_secret);
+    cfg->jwt_expiry_hours    = envInt("JWT_EXPIRY_HOURS", cfg->jwt_expiry_hours);
+    cfg->db_host             = envString("DB_HOST", cfg->db_host);
+    cfg->db_port             = envInt("DB_PORT", cfg->db_port);
+    cfg->db_name             = envString("DB_NAME", cfg->db_name);
+    cfg->db_user             = envString("DB_USER", cfg->db_user);
+    cfg->db_password         = envString("DB_PASSWORD", cfg->db_password);
+    cfg->geoip_db_path       = envString("GEOIP_DB_PATH", cfg->geoip_db_path);
+    cfg->geoip_asn_path      = envString("GEOIP_ASN_PATH", cfg->geoip_asn_path);
+    cfg->worker_interval_sec = envInt("WORKER_INTERVAL_SEC", cfg->worker_interval_sec);
+}
+
+}  // namespace
+
 void loadConfig(const std::string& path,
                 const std::shared_ptr<OrchestratorConfig>& cfg) {
     std::ifstream f(path);
     if (!f) {
         std::cerr << "[!] Config file not found: " << path
-                  << " — using defaults\n";
+                  << " — using defaults and environment overrides\n";
+        applyEnvOverrides(cfg);
         return;
     }
     nlohmann::json j;
@@ -59,6 +99,8 @@ void loadConfig(const std::string& path,
     cfg->geoip_db_path        = j.value("geoip_db_path",         cfg->geoip_db_path);
     cfg->geoip_asn_path       = j.value("geoip_asn_path",        cfg->geoip_asn_path);
     cfg->worker_interval_sec  = j.value("worker_interval_sec",   cfg->worker_interval_sec);
+
+    applyEnvOverrides(cfg);
 }
 
 void run(const std::string& configPath) {
@@ -85,6 +127,10 @@ void run(const std::string& configPath) {
 
     oatpp::web::server::api::Endpoints docEndpoints;
 
+    auto healthController = HealthController::createShared();
+    router->addController(healthController);
+    docEndpoints.append(healthController->getEndpoints());
+
     auto nodeController    = NodeController::createShared();
     router->addController(nodeController);
     docEndpoints.append(nodeController->getEndpoints());
@@ -103,10 +149,6 @@ void run(const std::string& configPath) {
 
     // Swagger UI
     auto swaggerController = oatpp::swagger::Controller::createShared(docEndpoints);
-    swaggerController->securitySchemes["bearerAuth"] = oatpp::swagger::oas3::SecurityScheme::createShared();
-    swaggerController->securitySchemes["bearerAuth"]->type = "http";
-    swaggerController->securitySchemes["bearerAuth"]->scheme = "bearer";
-    swaggerController->securitySchemes["bearerAuth"]->bearerFormat = "JWT";
     router->addController(swaggerController);
 
     // ── Connection handler with auth interceptor ───────────────────────────────
