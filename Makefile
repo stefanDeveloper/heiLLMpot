@@ -9,7 +9,7 @@ include .env
 export
 endif
 
-.PHONY: env certs up down logs ps register-node up-node analyze db-analysis db-shell clean-analysis
+.PHONY: env certs up down logs ps register-node up-node dashboard analyze db-analysis db-shell clean-analysis assets
 
 env:
 	@test -f .env || cp .env.example .env
@@ -19,10 +19,13 @@ certs:
 	@ORCHESTRATOR_CN=$${ORCHESTRATOR_CN:-localhost} bash scripts/gen_pki.sh $(NODE_ID)
 
 up: env certs
-	$(COMPOSE) up -d --build postgres orchestrator nginx
+	$(COMPOSE) up -d --build postgres orchestrator nginx dashboard
 
 up-node: env certs
 	$(COMPOSE) --profile node up -d --build honeybot
+
+dashboard: env
+	$(COMPOSE) up -d --build dashboard
 
 down:
 	$(COMPOSE) down
@@ -51,3 +54,6 @@ db-shell:
 
 clean-analysis:
 	rm -rf $(ANALYSIS_OUT)
+
+assets:
+	python3 scripts/render_demo_gif.py --output docs/assets/demo.gif

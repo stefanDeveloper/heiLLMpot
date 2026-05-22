@@ -12,6 +12,7 @@ sequenceDiagram
     participant Bot as honeybot node
     participant Api as orchestrator API
     participant Db as PostgreSQL
+    participant Ui as React dashboard
     participant Analyst as analyst
 
     Gen->>LLM: App spec, UX plan, HTML, SSH profile prompts
@@ -20,6 +21,7 @@ sequenceDiagram
     Bot->>Bot: Serve fake HTTP/HTTPS routes
     Bot->>Api: Batched events and sessions
     Api->>Db: Normalize and store telemetry
+    Ui->>Db: Live read-only telemetry queries
     Analyst->>Db: SQL summaries
     Analyst->>Bot: Optional local JSONL analysis
 ```
@@ -58,6 +60,15 @@ The C++ Oat++ orchestrator exposes health, node registration, event ingestion,
 session, and stats endpoints. PostgreSQL stores normalized telemetry. Node auth
 uses JWTs, and nginx can provide a TLS/mTLS edge in front of the API.
 
+### Dashboard
+
+The dashboard is a Dockerized React app with a small Node/Express API in the
+same container. The browser talks to the dashboard API, and the dashboard API
+reads PostgreSQL directly inside the Compose network. It shows live sessions,
+events, credentials, HTTP requests, nodes, classifications, and aggregate
+counts. Credentials are redacted by default and can be exposed only by setting
+`DASHBOARD_REDACT_SECRETS=false`.
+
 ### Analysis
 
 Local analysis scripts read JSONL logs and write Markdown, JSON, and CSV
@@ -82,6 +93,7 @@ events.
 | Orchestrator API | `127.0.0.1:8080` | Local admin/API access |
 | Nginx HTTP | `0.0.0.0:80` | Redirect/proxy layer |
 | Nginx HTTPS | `0.0.0.0:443` | TLS/mTLS edge |
+| Dashboard | `127.0.0.1:8090` | React live telemetry UI |
 | Honeybot HTTP | `0.0.0.0:8081` | Optional node profile |
 | Honeybot HTTPS | `0.0.0.0:8443` | Optional node profile |
 | Honeybot SSH | `0.0.0.0:2222` | Disabled by default |

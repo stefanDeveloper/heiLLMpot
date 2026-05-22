@@ -11,6 +11,9 @@ local-default.json
 **/vcpkg
 **/vcpkg_installed
 **/__pycache__
+**/node_modules
+**/.next
+**/dist
 *.log
 *.pem
 *.key

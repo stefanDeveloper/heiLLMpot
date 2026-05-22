@@ -31,6 +31,7 @@ The project combines:
 - A multi-provider LLM generator for fake portals and SSH profiles
 - A C++ HTTP/HTTPS honeybot runtime with generated-site rotation
 - An Oat++ orchestrator API with PostgreSQL storage and JWT node auth
+- A Dockerized React dashboard for live orchestrator telemetry
 - An nginx TLS/mTLS edge for production-style central collection
 - Local analysis scripts for JSONL logs and database summaries
 
@@ -50,8 +51,10 @@ The project combines:
   `--interactive` to configure providers, contexts, models, and agent depth.
 - **Central collection:** node events are forwarded to an orchestrator with
   PostgreSQL-backed sessions, events, credentials, HTTP requests, and stats.
+- **Live dashboard:** inspect sessions, events, credentials, HTTP requests,
+  nodes, and aggregates through a React UI backed by a small Express API.
 - **Research-friendly analysis:** summarize local logs or run database analysis
-  queries without having to build a dashboard first.
+  queries when you want offline reports.
 
 ## Architecture
 
@@ -96,7 +99,8 @@ curl http://localhost:8080/health
 ```
 
 The orchestrator API binds to `127.0.0.1:8080` for local administration. Nginx
-exposes HTTPS/mTLS on port `443`.
+exposes HTTPS/mTLS on port `443`. The React dashboard is available at
+`http://localhost:8090`.
 
 3. Generate a fake site:
 
@@ -175,6 +179,7 @@ authoring, and quality controls.
 generator/       LLM clients, contexts, prompts, TUI, and site pipeline
 honeybot/        C++ HTTP/HTTPS honeypot runtime
 orchestrator/    C++ Oat++ API, auth, controllers, database client, worker
+dashboard/       Next.js live telemetry UI and server-side snapshot API
 nginx/           TLS/mTLS reverse proxy configuration
 analysis/        SQL and local log analysis outputs
 scripts/         PKI, node registration, and log analysis helpers
@@ -185,6 +190,7 @@ docs/            Public-facing docs and project assets
 
 ```bash
 make up              # build and start postgres, orchestrator, nginx
+make dashboard       # build and start only the React dashboard
 make up-node         # build and start the optional honeybot profile
 make logs            # follow Docker Compose logs
 make db-shell        # open psql inside the Postgres container
