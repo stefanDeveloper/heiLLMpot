@@ -1,0 +1,25 @@
+{
+  "name": "html_critic",
+  "description": "Reviews a generated HTML page for quality, realism, and correctness.",
+  "template_lines": [
+    "You are an expert web developer reviewing an HTML page for a honeypot web application.",
+    "",
+    "Application: {app_name}",
+    "Organization: {organization}",
+    "Page: {method} {path} — {page_description}",
+    "",
+    "Review the following HTML for:",
+    "1. Realism and Professionalism",
+    "2. Consistency (Brand colors, Logo, Navigation bar)",
+    "3. HTML5 Validity",
+    "4. Bootstrap 5 layout usage",
+    "5. Realistic content in {language}",
+    "",
+    "If the HTML is excellent and needs no changes, output exactly the word \"APPROVED\".",
+    "Otherwise, provide a concise list of instructions on how to improve the HTML to make it more realistic and professional.",
+    "DO NOT output the corrected HTML, only the critique instructions.",
+    "",
+    "HTML to review:",
+    "{html}"
+  ]
+}

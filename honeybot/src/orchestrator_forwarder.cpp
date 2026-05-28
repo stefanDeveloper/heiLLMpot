@@ -1,5 +1,109 @@
 #include "orchestrator_forwarder.h"
+#include <algorithm>
+#include <cctype>
 #include <iostream>
+#include <string>
+
+namespace {
+
+struct ParsedUrl {
+    bool https = false;
+    std::string host;
+    int port = 80;
+};
+
+std::string lower(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return value;
+}
+
+std::string normalizeProtocol(const std::string& value) {
+    auto protocol = lower(value);
+    if (protocol == "http" || protocol == "ssh") return protocol;
+    return "unknown";
+}
+
+std::string normalizeEventType(const std::string& value) {
+    auto eventType = lower(value);
+    if (eventType == "login") return "credential";
+    return eventType;
+}
+
+bool isForwardableEvent(const std::string& eventType) {
+    return eventType == "request" ||
+           eventType == "credential" ||
+           eventType == "command" ||
+           eventType == "connect" ||
+           eventType == "disconnect";
+}
+
+std::string stringField(const nlohmann::json& value, const char* key) {
+    auto it = value.find(key);
+    if (it == value.end() || !it->is_string()) return "";
+    return it->get<std::string>();
+}
+
+std::string firstSessionRef(const nlohmann::json& value) {
+    for (const char* key : {"session_ref", "session_id", "connection_id"}) {
+        auto candidate = stringField(value, key);
+        if (!candidate.empty()) return candidate;
+    }
+    return "";
+}
+
+int parsePort(const std::string& value, int fallback) {
+    try {
+        size_t parsed = 0;
+        int port = std::stoi(value, &parsed);
+        if (parsed == value.size() && port > 0 && port <= 65535) {
+            return port;
+        }
+    } catch (...) {
+    }
+    return fallback;
+}
+
+ParsedUrl parseOrchestratorUrl(const std::string& url) {
+    ParsedUrl parsed;
+    std::string rest = url;
+
+    if (rest.rfind("https://", 0) == 0) {
+        parsed.https = true;
+        parsed.port = 443;
+        rest = rest.substr(8);
+    } else if (rest.rfind("http://", 0) == 0) {
+        rest = rest.substr(7);
+    }
+
+    auto slash = rest.find('/');
+    if (slash != std::string::npos) {
+        rest = rest.substr(0, slash);
+    }
+
+    if (!rest.empty() && rest.front() == '[') {
+        auto close = rest.find(']');
+        if (close != std::string::npos) {
+            parsed.host = rest.substr(1, close - 1);
+            if (close + 1 < rest.size() && rest[close + 1] == ':') {
+                parsed.port = parsePort(rest.substr(close + 2), parsed.port);
+            }
+            return parsed;
+        }
+    }
+
+    auto colon = rest.rfind(':');
+    if (colon != std::string::npos && rest.find(':') == colon) {
+        parsed.host = rest.substr(0, colon);
+        parsed.port = parsePort(rest.substr(colon + 1), parsed.port);
+    } else {
+        parsed.host = rest;
+    }
+
+    return parsed;
+}
+
+}  // namespace
 
 // ─── Construction / destruction ───────────────────────────────────────────────
 
@@ -23,30 +127,17 @@ void OrchestratorForwarder::stop() {
 
 void OrchestratorForwarder::buildClient() {
     const std::string& url = m_cfg.url;
-    const bool isHttps     = (url.rfind("https://", 0) == 0);
+    const auto endpoint = parseOrchestratorUrl(url);
 
-    if (isHttps) {
+    if (endpoint.https) {
         // Build an SSLClient and capture it in the lambda.
-        // Parse host and port from the URL.
         auto ssl = [&]() -> std::shared_ptr<httplib::SSLClient> {
-            std::string host;
-            int port = 443;
-            auto pos = url.find("://");
-            std::string rest = (pos != std::string::npos) ? url.substr(pos + 3) : url;
-            auto colon = rest.rfind(':');
-            if (colon != std::string::npos) {
-                host = rest.substr(0, colon);
-                port = std::stoi(rest.substr(colon + 1));
-            } else {
-                host = rest;
-            }
-
             std::shared_ptr<httplib::SSLClient> c;
             if (!m_cfg.client_cert.empty() && !m_cfg.client_key.empty()) {
                 c = std::make_shared<httplib::SSLClient>(
-                    host, port, m_cfg.client_cert, m_cfg.client_key);
+                    endpoint.host, endpoint.port, m_cfg.client_cert, m_cfg.client_key);
             } else {
-                c = std::make_shared<httplib::SSLClient>(host, port);
+                c = std::make_shared<httplib::SSLClient>(endpoint.host, endpoint.port);
             }
             if (!m_cfg.ca_cert.empty()) {
                 c->set_ca_cert_path(m_cfg.ca_cert.c_str());
@@ -67,8 +158,7 @@ void OrchestratorForwarder::buildClient() {
         };
     } else {
         // Plain HTTP — used for local development.
-        // httplib::Client(scheme://host:port) auto-detects the port.
-        auto cli = std::make_shared<httplib::Client>(url);
+        auto cli = std::make_shared<httplib::Client>(endpoint.host, endpoint.port);
         cli->set_connection_timeout(10);
         cli->set_read_timeout(15);
 
@@ -132,13 +222,26 @@ void OrchestratorForwarder::flush(std::deque<nlohmann::json>& batch) {
 
     for (auto& entry : batch) {
         nlohmann::json ev = entry.value("data", nlohmann::json::object());
+        if (!ev.is_object()) continue;
+
+        const auto protocol = normalizeProtocol(entry.value("protocol", "unknown"));
+        const auto eventType = normalizeEventType(entry.value("event", ""));
+        const auto sessionRef = firstSessionRef(ev);
+
+        if (!isForwardableEvent(eventType) || sessionRef.empty()) {
+            continue;
+        }
+
         ev["node_id"]    = m_cfg.node_id;
-        ev["protocol"]   = entry.value("protocol", "unknown");
-        ev["event_type"] = entry.value("event", "");
+        ev["protocol"]   = protocol;
+        ev["event_type"] = eventType;
         ev["timestamp"]  = entry.value("timestamp", "");
+        ev["session_ref"] = sessionRef;
         ev["raw_json"]   = entry.dump();
         payload["events"].push_back(std::move(ev));
     }
+
+    if (payload["events"].empty()) return;
 
     if (!postBatch(payload)) {
         // Re-queue on failure (drop oldest if queue is huge to avoid OOM)

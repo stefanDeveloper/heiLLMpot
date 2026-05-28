@@ -144,8 +144,8 @@ void DbClient::registerNode(const std::string& node_id, const std::string& regio
                              ip_address.c_str(), api_key_hash.c_str()};
     auto* res = execParams(
         "INSERT INTO honeypot_nodes(node_id,region,ip_address,api_key_hash) "
-        "VALUES($1,$2,$3::inet,$4) "
-        "ON CONFLICT(node_id) DO UPDATE SET region=$2, ip_address=$3::inet, "
+        "VALUES($1,$2,NULLIF($3,'')::inet,$4) "
+        "ON CONFLICT(node_id) DO UPDATE SET region=$2, ip_address=NULLIF($3,'')::inet, "
         "last_seen=NOW(), active=TRUE",
         4, params);
     PQclear(res);
@@ -205,7 +205,9 @@ std::string DbClient::upsertSession(const std::string& node_id,
         "INSERT INTO sessions"
         "  (node_id,protocol,session_ref,client_ip,client_port,started_at,"
         "   geo_country,geo_country_iso,geo_city,geo_asn,geo_org)"
-        " VALUES($1,$2,$3,$4::inet,$5::int,$6::timestamptz,$7,$8,$9,$10::int,$11)"
+        " VALUES($1,$2,$3,NULLIF($4,'')::inet,$5::int,"
+        "        COALESCE(NULLIF($6,'')::timestamptz, NOW()),"
+        "        $7,$8,$9,$10::int,$11)"
         " ON CONFLICT(node_id,session_ref) DO NOTHING"
         " RETURNING id",
         11, params);
@@ -334,7 +336,7 @@ void DbClient::insertEvent(const std::string& session_uuid,
     };
     auto* res = execParams(
         "INSERT INTO events(session_id,node_id,protocol,event_type,occurred_at,raw) "
-        "VALUES($1::uuid,$2,$3,$4,$5::timestamptz,$6::jsonb) "
+        "VALUES($1::uuid,$2,$3,$4,COALESCE(NULLIF($5,'')::timestamptz, NOW()),$6::jsonb) "
         "ON CONFLICT DO NOTHING",
         6, params);
     PQclear(res);
@@ -361,7 +363,7 @@ void DbClient::insertCredential(const std::string& session_uuid,
     };
     auto* res = execParams(
         "INSERT INTO credentials(session_id,node_id,protocol,username,password,occurred_at,success) "
-        "VALUES($1::uuid,$2,$3,$4,$5,$6::timestamptz,$7::boolean)",
+        "VALUES($1::uuid,$2,$3,$4,$5,COALESCE(NULLIF($6,'')::timestamptz, NOW()),$7::boolean)",
         7, params);
     PQclear(res);
 }
@@ -381,7 +383,7 @@ void DbClient::insertHttpRequest(const std::string& session_uuid,
     };
     auto* res = execParams(
         "INSERT INTO http_requests(session_id,node_id,method,path,status_code,user_agent,occurred_at) "
-        "VALUES($1::uuid,$2,$3,$4,$5::int,$6,$7::timestamptz)",
+        "VALUES($1::uuid,$2,$3,$4,$5::int,$6,COALESCE(NULLIF($7,'')::timestamptz, NOW()))",
         7, params);
     PQclear(res);
 }
@@ -457,6 +459,10 @@ oatpp::Object<StatsResponseDto> DbClient::getStats(const std::string& from_date,
                                                      const std::string& to_date) {
     std::lock_guard<std::mutex> lock(m_mutex);
     ensureConnected();
+
+    auto* refresh = PQexec(m_conn, "REFRESH MATERIALIZED VIEW daily_stats");
+    checkResult(refresh, "refreshDailyStats");
+    PQclear(refresh);
 
     const char* params[] = {from_date.c_str(), to_date.c_str()};
     auto* res = execParams(

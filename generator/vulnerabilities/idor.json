@@ -1,0 +1,13 @@
+{
+  "type": "Insecure Direct Object Reference (IDOR)",
+  "description": "IDOR in a profile, record, or document endpoint. The backend accepts a user-supplied numeric ID (e.g. student_id, user_id, record_id) as a GET or POST parameter and returns data belonging to any user without verifying ownership. An authenticated attacker can enumerate IDs to access other users' private data.",
+  "target_route": "/profile",
+  "parameter": "user_id",
+  "exploit_hint": "After logging in, change the user_id parameter from your own value (e.g. 42) to another user's ID (e.g. 43). The server should return the other user's data without authorization check.",
+  "requirements": [
+    "The endpoint MUST accept a user_id (or equivalent) GET/POST parameter.",
+    "The backend MUST NOT verify that the session user matches the requested ID.",
+    "The response MUST include personal data (name, email, etc.) of the requested user.",
+    "Use sequential or guessable integer IDs (1, 2, 3...) to make enumeration trivial."
+  ]
+}

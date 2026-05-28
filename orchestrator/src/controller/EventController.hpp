@@ -6,6 +6,10 @@
 #include "oatpp/web/server/api/ApiController.hpp"
 #include "oatpp/parser/json/mapping/ObjectMapper.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <initializer_list>
+
 #include OATPP_CODEGEN_BEGIN(ApiController)
 
 class EventController : public oatpp::web::server::api::ApiController {
@@ -49,24 +53,38 @@ public:
             return createResponse(Status::CODE_400, "Empty event batch");
         }
 
+        int ingested = 0;
+        int skipped = 0;
         for (auto& ev : *body->events) {
             if (!ev) continue;
-            std::string proto      = ev->protocol    ? ev->protocol->c_str()    : "unknown";
-            std::string sessionRef = ev->session_ref ? ev->session_ref->c_str() : "";
+            std::string proto      = normalizeProtocol(ev->protocol ? ev->protocol->c_str() : "");
+            std::string etype      = normalizeEventType(ev->event_type ? ev->event_type->c_str() : "");
+            std::string sessionRef = firstNonEmpty({
+                ev->session_ref ? ev->session_ref->c_str() : "",
+                ev->session_id ? ev->session_id->c_str() : "",
+                ev->connection_id ? ev->connection_id->c_str() : ""
+            });
             std::string clientIp   = ev->client_ip   ? ev->client_ip->c_str()   : "";
             int         port       = ev->client_port ? *ev->client_port         : 0;
             std::string ts         = ev->timestamp   ? ev->timestamp->c_str()   : "";
-            std::string etype      = ev->event_type  ? ev->event_type->c_str()  : "";
+
+            if (sessionRef.empty()) {
+                ++skipped;
+                continue;
+            }
 
             auto geo  = db->geoLookup(clientIp);
             auto uuid = db->upsertSession(nid, proto, sessionRef,
                                            clientIp, port, ts, geo);
-            if (uuid.empty()) continue;
+            if (uuid.empty()) {
+                ++skipped;
+                continue;
+            }
 
             std::string rawJson = ev->raw_json ? ev->raw_json->c_str() : "{}";
             db->insertEvent(uuid, nid, proto, etype, ts, rawJson);
 
-            if (etype == "credential") {
+            if (etype == "credential" || etype == "login") {
                 std::string user = ev->username ? ev->username->c_str() : "";
                 std::string pass = ev->password ? ev->password->c_str() : "";
                 db->insertCredential(uuid, nid, proto, user, pass, ts, false);
@@ -78,11 +96,13 @@ public:
                 std::string ua     = ev->user_agent  ? ev->user_agent->c_str() : "";
                 db->insertHttpRequest(uuid, nid, method, path, sc, ua, ts);
             }
+            ++ingested;
         }
 
         auto resp    = StatusDto::createShared();
         resp->status  = "ok";
-        resp->message = "Events ingested";
+        resp->message = "Events ingested: " + std::to_string(ingested) +
+                        ", skipped: " + std::to_string(skipped);
         resp->code    = 200;
         return createDtoResponse(Status::CODE_200, resp);
     }
@@ -112,6 +132,32 @@ public:
         auto list = oatpp::List<oatpp::Object<SessionDto>>::createShared();
         for (auto& s : sessions) list->push_back(s);
         return createDtoResponse(Status::CODE_200, list);
+    }
+
+private:
+    static std::string lower(std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        return value;
+    }
+
+    static std::string normalizeProtocol(const std::string& value) {
+        auto protocol = lower(value);
+        if (protocol == "http" || protocol == "ssh") return protocol;
+        return "unknown";
+    }
+
+    static std::string normalizeEventType(const std::string& value) {
+        auto eventType = lower(value);
+        if (eventType == "login") return "credential";
+        return eventType.empty() ? "unknown" : eventType;
+    }
+
+    static std::string firstNonEmpty(std::initializer_list<std::string> values) {
+        for (const auto& value : values) {
+            if (!value.empty()) return value;
+        }
+        return "";
     }
 };
 

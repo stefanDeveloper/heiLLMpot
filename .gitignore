@@ -39,3 +39,47 @@
 
 # debug information files
 *.dwo
+
+# Local environment and generated secrets
+.env
+certs/
+*.key
+*.pem
+*.crt
+*.csr
+*.srl
+
+# Build output and dependency caches
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+cmake_install.cmake
+_deps/
+vcpkg/
+vcpkg_installed/
+
+# Runtime output
+*.log
+generated_sites/*.json
+analysis/output/
+/local-default.json
+/*_*.json
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node
+node_modules/
+dashboard/node_modules/
+dashboard/.next/
+dashboard/dist/

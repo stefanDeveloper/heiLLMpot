@@ -1,24 +1,22 @@
 services:
-  # ─── PostgreSQL ──────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: honeypot_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB:       honeypot_db
-      POSTGRES_USER:     orchestrator_app
+      POSTGRES_DB: ${DB_NAME:-honeypot_db}
+      POSTGRES_USER: ${DB_USER:-orchestrator_app}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U orchestrator_app -d honeypot_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-orchestrator_app} -d ${DB_NAME:-honeypot_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ─── Orchestrator (Oat++ C++) ────────────────────────────────────────────────
   orchestrator:
     build:
       context: ./orchestrator
@@ -29,31 +27,42 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      # Override config values via env (orchestrator reads orchestrator.json;
-      # the Dockerfile COPY puts it in the image, but these override at runtime)
-      DB_HOST:     postgres
+      LISTEN_ADDR: 0.0.0.0
+      PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-honeypot_db}
+      DB_USER: ${DB_USER:-orchestrator_app}
       DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      JWT_SECRET: ${JWT_SECRET:-change-me-with-a-long-random-secret}
+      JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS:-168}
+      WORKER_INTERVAL_SEC: ${WORKER_INTERVAL_SEC:-30}
     volumes:
       - ./orchestrator/config/orchestrator.json:/app/config/orchestrator.json:ro
-      - ./certs/server.crt:/app/certs/server.crt:ro
-      - ./certs/server.key:/app/certs/server.key:ro
-      - ./certs/ca.crt:/app/certs/ca.crt:ro
+      - ./certs:/app/certs:ro
       - geoip_data:/usr/share/GeoIP:ro
+    ports:
+      - "127.0.0.1:${ORCHESTRATOR_API_PORT:-8080}:8080"
     networks:
       - internal
     expose:
       - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
-  # ─── Nginx (TLS + mTLS termination) ─────────────────────────────────────────
   nginx:
     image: nginx:1.27-alpine
     container_name: honeypot_nginx
     restart: unless-stopped
     depends_on:
-      - orchestrator
+      orchestrator:
+        condition: service_healthy
     ports:
-      - "443:443"
-      - "80:80"         # redirect to 443
+      - "${ORCHESTRATOR_HTTPS_PORT:-443}:443"
+      - "${ORCHESTRATOR_HTTP_PORT:-80}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./certs/server.crt:/etc/nginx/ssl/server.crt:ro
@@ -62,10 +71,83 @@ services:
     networks:
       - internal
       - external
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --no-check-certificate https://127.0.0.1/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    container_name: honeypot_dashboard
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: 8090
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-honeypot_db}
+      DB_USER: ${DB_USER:-orchestrator_app}
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      DASHBOARD_REFRESH_MS: ${DASHBOARD_REFRESH_MS:-4000}
+      DASHBOARD_ROW_LIMIT: ${DASHBOARD_ROW_LIMIT:-80}
+      DASHBOARD_REDACT_SECRETS: ${DASHBOARD_REDACT_SECRETS:-true}
+    ports:
+      - "127.0.0.1:${DASHBOARD_PORT:-8090}:8090"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8090/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  honeybot:
+    profiles: ["node"]
+    build:
+      context: ./honeybot
+      dockerfile: Dockerfile
+    container_name: honeypot_node
+    restart: unless-stopped
+    depends_on:
+      orchestrator:
+        condition: service_healthy
+    environment:
+      HONEYPOT_LOG_FILE: /app/logs/honeypot.jsonl
+      SITES_DIR: /app/generated_sites
+      HTTP_LISTEN_ADDR: 0.0.0.0
+      HTTP_PORT: 8081
+      HTTPS_PORT: 8443
+      HTTP_ENABLE_HTTPS: ${HONEYPOT_ENABLE_HTTPS:-true}
+      SSH_ENABLED: ${HONEYPOT_SSH_ENABLED:-false}
+      ORCHESTRATOR_ENABLED: ${HONEYPOT_ORCHESTRATOR_ENABLED:-true}
+      ORCHESTRATOR_URL: http://orchestrator:8080
+      NODE_ID: ${NODE_ID:-node-local-1}
+      JWT_TOKEN: ${JWT_TOKEN:-}
+      CLIENT_CERT: /app/certs/${NODE_ID:-node-local-1}.crt
+      CLIENT_KEY: /app/certs/${NODE_ID:-node-local-1}.key
+      CA_CERT: /app/certs/ca.crt
+    volumes:
+      - ./honeybot/config/honeypot.json:/app/config/honeypot.json:ro
+      - ./generated_sites:/app/generated_sites:ro
+      - ./certs:/app/certs:ro
+      - honeybot_logs:/app/logs
+    ports:
+      - "${HONEYPOT_HTTP_PORT:-8081}:8081"
+      - "${HONEYPOT_HTTPS_PORT:-8443}:8443"
+      - "${HONEYPOT_SSH_PORT:-2222}:2222"
+    networks:
+      - internal
+      - external
 
 volumes:
   postgres_data:
   geoip_data:
+  honeybot_logs:
 
 networks:
   internal:

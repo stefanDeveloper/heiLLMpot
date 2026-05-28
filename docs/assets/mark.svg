@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">heiLLMpot mark</title>
+  <desc id="desc">A compact shield and circuit mark for heiLLMpot.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="1" stop-color="#172033"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#48e5c2"/>
+      <stop offset=".55" stop-color="#61a5ff"/>
+      <stop offset="1" stop-color="#f6c453"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <path d="M128 24 L209 58 V122 C209 174 176 213 128 234 C80 213 47 174 47 122 V58 Z" fill="#0b1828" stroke="url(#accent)" stroke-width="8"/>
+  <path d="M95 112 H161 C175 112 185 122 185 136 V153 C185 167 175 177 161 177 H95 C81 177 71 167 71 153 V136 C71 122 81 112 95 112 Z" fill="#07111f" stroke="#48e5c2" stroke-width="6"/>
+  <path d="M94 111 V86 C94 64 108 50 128 50 C148 50 162 64 162 86 V111" fill="none" stroke="#61a5ff" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="128" cy="138" r="8" fill="#f6c453"/>
+  <path d="M128 145 V161" stroke="#f6c453" stroke-width="8" stroke-linecap="round"/>
+  <path d="M182 82 H222 M222 82 V51 M74 82 H34 M34 82 V51 M182 197 H222 M222 197 V224 M74 197 H34 M34 197 V224" fill="none" stroke="#61a5ff" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="222" cy="51" r="7" fill="#48e5c2"/>
+  <circle cx="34" cy="51" r="7" fill="#f6c453"/>
+  <circle cx="222" cy="224" r="7" fill="#f6c453"/>
+  <circle cx="34" cy="224" r="7" fill="#48e5c2"/>
+</svg>

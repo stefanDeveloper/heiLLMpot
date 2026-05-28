@@ -5,6 +5,9 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <iostream>
 #include <fstream>
 #include <thread>
@@ -18,6 +21,97 @@ namespace fs = std::filesystem;
 
 static std::atomic<bool> g_running{true};
 static std::vector<std::unique_ptr<HoneypotProtocol>> g_protocols;
+
+namespace {
+
+const char* envValue(const char* name) {
+    const char* value = std::getenv(name);
+    return (value && value[0] != '\0') ? value : nullptr;
+}
+
+void ensureSection(nlohmann::json& config, const char* section) {
+    if (!config.contains(section) || !config[section].is_object()) {
+        config[section] = nlohmann::json::object();
+    }
+}
+
+void setRootString(nlohmann::json& config, const char* key, const char* envName) {
+    if (const char* value = envValue(envName)) config[key] = value;
+}
+
+void setString(nlohmann::json& config, const char* section,
+               const char* key, const char* envName) {
+    if (const char* value = envValue(envName)) {
+        ensureSection(config, section);
+        config[section][key] = value;
+    }
+}
+
+void setInt(nlohmann::json& config, const char* section,
+            const char* key, const char* envName) {
+    const char* value = envValue(envName);
+    if (!value) return;
+    try {
+        ensureSection(config, section);
+        config[section][key] = std::stoi(value);
+    } catch (...) {
+        std::cerr << "[!] Ignoring invalid integer env var " << envName
+                  << "=" << value << "\n";
+    }
+}
+
+void setBool(nlohmann::json& config, const char* section,
+             const char* key, const char* envName) {
+    const char* value = envValue(envName);
+    if (!value) return;
+    std::string normalized = value;
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+
+    ensureSection(config, section);
+    if (normalized == "1" || normalized == "true" ||
+        normalized == "yes" || normalized == "on") {
+        config[section][key] = true;
+    } else if (normalized == "0" || normalized == "false" ||
+               normalized == "no" || normalized == "off") {
+        config[section][key] = false;
+    } else {
+        std::cerr << "[!] Ignoring invalid boolean env var " << envName
+                  << "=" << value << "\n";
+    }
+}
+
+void applyEnvOverrides(nlohmann::json& config) {
+    setRootString(config, "log_file", "HONEYPOT_LOG_FILE");
+
+    setBool(config, "http", "enabled", "HTTP_ENABLED");
+    setString(config, "http", "listen_addr", "HTTP_LISTEN_ADDR");
+    setInt(config, "http", "http_port", "HTTP_PORT");
+    setInt(config, "http", "https_port", "HTTPS_PORT");
+    setBool(config, "http", "enable_https", "HTTP_ENABLE_HTTPS");
+    setString(config, "http", "cert_path", "HTTP_CERT_PATH");
+    setString(config, "http", "key_path", "HTTP_KEY_PATH");
+    setString(config, "http", "sites_dir", "SITES_DIR");
+    setBool(config, "http", "rotate_sites", "HTTP_ROTATE_SITES");
+
+    setBool(config, "ssh", "enabled", "SSH_ENABLED");
+    setString(config, "ssh", "listen_addr", "SSH_LISTEN_ADDR");
+    setInt(config, "ssh", "port", "SSH_PORT");
+    setString(config, "ssh", "host_key_path", "SSH_HOST_KEY_PATH");
+
+    setBool(config, "orchestrator", "enabled", "ORCHESTRATOR_ENABLED");
+    setString(config, "orchestrator", "url", "ORCHESTRATOR_URL");
+    setString(config, "orchestrator", "node_id", "NODE_ID");
+    setString(config, "orchestrator", "jwt_token", "JWT_TOKEN");
+    setString(config, "orchestrator", "client_cert", "CLIENT_CERT");
+    setString(config, "orchestrator", "client_key", "CLIENT_KEY");
+    setString(config, "orchestrator", "ca_cert", "CA_CERT");
+    setInt(config, "orchestrator", "batch_size", "FORWARDER_BATCH_SIZE");
+    setInt(config, "orchestrator", "flush_interval_sec", "FORWARDER_FLUSH_INTERVAL_SEC");
+    setInt(config, "orchestrator", "max_retries", "FORWARDER_MAX_RETRIES");
+}
+
+}  // namespace
 
 static void signal_handler(int sig) {
     (void)sig;
@@ -50,6 +144,8 @@ int main(int argc, char* argv[]) {
                   << ", using defaults.\n";
         config = nlohmann::json::object();
     }
+
+    applyEnvOverrides(config);
 
     // Setup logging
     std::string log_file = config.value("log_file", "honeypot.log");
