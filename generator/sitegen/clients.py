@@ -61,6 +61,7 @@ class OllamaClient:
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
                     options={"temperature": temperature,
+                             "num_ctx": 16384,
                              "num_predict": self.max_output_tokens},
                 )
                 return response.message.content

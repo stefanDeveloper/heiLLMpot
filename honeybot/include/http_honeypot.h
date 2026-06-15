@@ -39,6 +39,7 @@ public:
         std::string tls_country = "";
         std::string tls_state = "";
         std::string tls_locality = "";
+        std::string active_site = "";
     };
 
     explicit HttpHoneypot(const Config& config);

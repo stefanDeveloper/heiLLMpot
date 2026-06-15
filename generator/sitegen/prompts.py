@@ -111,7 +111,9 @@ Respond ONLY with JSON. No markdown, no explanation.
 
 
 HTML_PAGE_PROMPT = """\
-You are generating the HTML page body for a web application.
+You are generating a production-grade HTML page for a realistic web application \
+used as a defensive honeypot. The page MUST look indistinguishable from a real \
+enterprise portal.
 
 Application: {app_name}
 Organization: {organization}
@@ -130,25 +132,77 @@ Route-specific realism plan:
 Site-wide HTML contract:
 {site_contract}
 
-Requirements:
-1. Output a COMPLETE, valid HTML5 document (<!DOCTYPE html> through </html>)
-2. Use Bootstrap 5 CDN for styling
-3. Include a proper <head> with <meta charset>, <title>, viewport meta
-4. Include a navigation bar with the organization name, app name, and links \
-to all routes
-5. {brand_color_instruction}
-6. For login pages: include a proper form with username/password fields and a \
-submit button
-7. For authenticated pages: show the current user's name and a logout link
-8. Make it look like a REAL {context_name} web portal: professional, clean, \
-functional
-9. Do NOT use template syntax like {{{{ }}}} or Jinja placeholders
-10. Do NOT include any HTTP headers, just the HTML document
-11. Use realistic content in {language}; real-looking data, not "Lorem ipsum"
-12. All form actions should use relative paths (e.g., action="/login")
-13. Keep the page compact enough to finish in one response: 4-6 realistic rows
-    per table and no oversized inline datasets
-14. Never invent navigation targets outside the site-wide contract
+═══════════════════════════════════════════════════════════════════════
+CORE REQUIREMENTS
+═══════════════════════════════════════════════════════════════════════
+
+1. Output a COMPLETE, valid HTML5 document (<!DOCTYPE html> through </html>).
+2. Include a proper <head> with <meta charset>, <title>, viewport meta, and \
+   Bootstrap 5 CDN (CSS + JS bundle).
+3. Use Google Fonts (e.g., Inter, Roboto, or Source Sans Pro) for typography.
+
+═══════════════════════════════════════════════════════════════════════
+MULTI-PAGE NAVIGATION (CRITICAL)
+═══════════════════════════════════════════════════════════════════════
+
+4. Build a CONSISTENT navigation shell that is identical across all pages:
+   - A fixed left sidebar (250px) with the organization logo/name at top,
+     followed by navigation links for EVERY route listed in the app routes.
+   - A sticky top bar with the current page title and user identity/logout.
+   - A scrollable main content area to the right of the sidebar.
+5. EVERY navigation link MUST use a real <a href="/route"> pointing to one \
+   of the allowed routes. The current page's link must be visually highlighted \
+   (active state with accent color).
+6. DO NOT add any navigation items that are not in the allowed routes list! \
+   No "About", "Services", "Contact", "Help", "Settings", "Profile" unless \
+   they are explicitly listed in the routes.
+7. The sidebar must use consistent class names: .sidebar, .sidebar-nav, \
+   .sidebar-link, .sidebar-link.active. The topbar: .top-bar. The content: \
+   .main-content.
+
+═══════════════════════════════════════════════════════════════════════
+VISUAL DESIGN (PREMIUM QUALITY)
+═══════════════════════════════════════════════════════════════════════
+
+8.  {brand_color_instruction}. Use it for: sidebar background or accent, \
+    active nav items, primary buttons, and key headings.
+9.  Login pages: use a centered card layout with the organization logo, \
+    username + password fields, a prominent "Sign In" button, and a subtle \
+    footer. Include a dark or gradient background behind the card. Still \
+    include the sidebar (collapsed or hidden) so that the nav structure is \
+    consistent.
+10. Dashboard/authenticated pages MUST show rich, sector-appropriate content:
+    - Summary cards with metrics (e.g. "Active Users: 1,247", dates, statuses)
+    - Data tables with 4-6 realistic rows (real-looking names, IDs, dates)
+    - Activity feeds or notification panels
+    - Breadcrumb or page-section headers
+11. Use these CSS techniques for a polished, premium look:
+    - Card components with border-radius: 8-12px and subtle box-shadow
+    - Smooth transitions on hover (0.2s ease)
+    - Sidebar with a dark or branded background, white text, subtle hover bg
+    - Status badges with colored pills (green/amber/red)
+    - Proper spacing (padding, margin) — never cramped
+    - Responsive: use Bootstrap grid (col-md-*, col-lg-*) and table-responsive
+12. Every page must include a <style> block with custom CSS variables for \
+    the brand color, ensuring visual consistency.
+
+═══════════════════════════════════════════════════════════════════════
+CONTENT & REALISM
+═══════════════════════════════════════════════════════════════════════
+
+13. Use realistic content in {language}: real-looking data, names appropriate \
+    for the country, plausible dates, IDs, and status labels. Never use \
+    "Lorem ipsum", "John Doe", "test@example.com", or obvious placeholder text.
+14. For login pages: form action="/login" method="POST", with input fields \
+    named "username" and "password".
+15. For authenticated pages: show the logged-in user's display name in the \
+    topbar with a "Sign Out" link pointing to /login.
+16. All form actions must use relative paths (e.g., action="/login").
+17. Keep the page compact enough to finish in one response: 4-6 rows per table, \
+    no oversized inline datasets.
+18. Do NOT use template syntax like {{{{ }}}} or Jinja placeholders.
+19. Do NOT include any HTTP headers, just the HTML document.
+20. Never invent navigation targets outside the site-wide contract.
 
 Output ONLY the HTML document. No markdown fences, no explanation, no comments \
 outside HTML.
@@ -156,8 +210,8 @@ outside HTML.
 
 
 HTML_CRITIC_PROMPT = """\
-You are an expert web developer reviewing an HTML page for a honeypot web \
-application.
+You are a senior web developer and UX expert reviewing an HTML page for a \
+honeypot web application that must fool real attackers.
 
 Application: {app_name}
 Organization: {organization}
@@ -165,18 +219,27 @@ Page: {method} {path} - {page_description}
 Site-wide HTML contract:
 {site_contract}
 
-Review the following HTML for:
-1. Realism and Professionalism
-2. Consistency (Brand colors, Logo, Navigation bar)
-3. HTML5 Validity
-4. Bootstrap 5 layout usage
-5. Realistic content in {language}
-6. No dead links, invented routes, dangling tags, or route-to-route layout drift
+Review the following HTML for these critical criteria:
+
+1. **Multi-page navigation**: Does the page have a sidebar with working links \
+   to all allowed routes? Are class names consistent (.sidebar, .top-bar, \
+   .main-content)? Is the current route marked active?
+2. **Premium visual quality**: Does the page look like a real production portal? \
+   Check for proper spacing, card-based layouts, professional typography, \
+   subtle shadows, and branded colors.
+3. **Realism**: Is the content realistic? No placeholder text, lorem ipsum, \
+   or obviously fake data. Names, dates, IDs, and statuses should be plausible.
+4. **HTML5 Validity**: Proper doctype, charset, viewport, closed tags.
+5. **Bootstrap 5**: Correct grid usage, responsive classes, table-responsive.
+6. **Content in {language}**: All user-facing text in the correct language.
+7. **No dead links**: Every href must point to an allowed route. No invented \
+   routes. No dangling tags. No layout drift between pages.
+8. **Login page**: If this is /login, does it have a proper POST form with \
+   username/password fields and a styled card layout?
 
 If the HTML is excellent and needs no changes, output exactly the word \
 "APPROVED".
-Otherwise, provide a concise list of instructions on how to improve the HTML to \
-make it more realistic and professional.
+Otherwise, provide a concise list of instructions on how to improve the HTML.
 DO NOT output the corrected HTML, only the critique instructions.
 
 HTML to review:
@@ -213,8 +276,7 @@ HTML to review:
 
 
 HTML_REVISION_PROMPT = """\
-You are an expert web developer. You previously generated an HTML page for this \
-application, but a reviewer provided feedback for improvements.
+You are an expert web developer revising an HTML page based on feedback.
 
 Application: {app_name}
 Organization: {organization}
@@ -222,18 +284,25 @@ Page: {method} {path} - {page_description}
 Site-wide HTML contract:
 {site_contract}
 
-Here is the reviewer's feedback:
+Reviewer's feedback:
 {feedback}
 
-Here is your previous HTML:
+Previous HTML:
 {html}
 
-Please provide the FULL, revised HTML document incorporating the feedback. \
-Ensure it is a completely valid HTML5 document. Choose styling that looks \
-realistic and professional. Keep it compact enough to finish in one response \
-and obey the site-wide HTML contract exactly.
-Output ONLY the HTML document. No markdown fences, no explanation, no comments \
-outside HTML.
+Revision requirements:
+- Incorporate ALL feedback items.
+- PRESERVE the page shell: sidebar with .sidebar, topbar with .top-bar, main \
+  content with .main-content. Do NOT change the navigation structure or class \
+  names.
+- PRESERVE CSS custom properties (--brand-color etc.) and the overall design \
+  system.
+- Keep the navigation links identical: same routes, same labels, same order.
+- Ensure the document is a complete, valid HTML5 page with Bootstrap 5 CDN.
+- Keep it compact enough to finish in one response.
+- Obey the site-wide HTML contract exactly.
+
+Output ONLY the revised HTML document. No markdown fences, no explanation.
 """
 
 

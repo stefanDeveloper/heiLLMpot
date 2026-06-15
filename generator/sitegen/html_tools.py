@@ -127,7 +127,17 @@ def extract_json(text: str) -> dict:
     if start != -1 and end != -1 and end > start:
         text = text[start:end + 1]
 
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Try basic repairs for common LLM JSON formatting mistakes
+        # 1. Missing commas between lines/objects
+        text = re.sub(r'([}\]])\s*(["{\[])', r'\1,\n\2', text)
+        text = re.sub(r'("\s*:?\s*"[^"]*")\s*("\s*:)', r'\1,\n\2', text)
+        # 2. Trailing commas
+        text = re.sub(r",(\s*[}\]])", r"\1", text)
+        
+        return json.loads(text)
 
 
 def clean_html(html: str) -> str:
@@ -152,6 +162,23 @@ def clean_html(html: str) -> str:
 
     html = re.sub(r"http://localhost:\d+", "", html)
     html = re.sub(r"http://127\.0\.0\.1:\d+", "", html)
+
+    # Remove trailing unclosed tags/words that are cut off (e.g. "<div clas" or "<a href=")
+    html = re.sub(r"<[a-zA-Z][^>]*$", "", html)
+
+    # Auto-close open structural tags in case LLM output was truncated
+    parser = TagBalanceParser()
+    try:
+        parser.feed(html)
+        parser.close()
+        unclosed = [
+            tag for tag in parser.stack 
+            if tag in STRUCTURAL_TAGS and tag not in {"html", "body"}
+        ]
+        if unclosed:
+            html += "".join(f"</{tag}>" for tag in reversed(unclosed))
+    except Exception:
+        pass
 
     if not html.strip().lower().startswith("<!doctype"):
         if "<html" in html.lower():

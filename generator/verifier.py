@@ -296,7 +296,7 @@ def run_verification(out_dir: Path) -> None:
                 "-disable-update-check",
                 "-silent"
             ]
-            subprocess.run(cmd, capture_output=True, timeout=30)
+            subprocess.run(cmd, capture_output=True, timeout=120)
 
             # Parse results
             findings = []

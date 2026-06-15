@@ -21,16 +21,14 @@ RUN cmake -B build \
     -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake \
     && cmake --build build --parallel $(nproc)
 
-FROM debian:bookworm-slim
+RUN mkdir -p /build/out_libs && cp -a /build/build/vcpkg_installed/*/lib/* /usr/local/lib/ || true
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /build/build/honeypot /app/honeypot
-COPY --from=builder /build/build/vcpkg_installed/x64-linux/lib/ /usr/local/lib/
-COPY --from=builder /build/config /app/config
+RUN cp /build/build/honeypot /app/honeypot && cp -r /build/config /app/config
 
 RUN ldconfig && mkdir -p /app/generated_sites /app/certs /app/logs
 

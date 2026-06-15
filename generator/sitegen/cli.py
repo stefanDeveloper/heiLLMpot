@@ -72,6 +72,12 @@ Examples:
         ),
     )
     parser.add_argument(
+        "--reasoning-models",
+        nargs="+",
+        default=None,
+        help="Reasoning model names to pair with --models (space-separated). If omitted, falls back to the coding model.",
+    )
+    parser.add_argument(
         "--count",
         type=int,
         default=5,
@@ -247,17 +253,23 @@ def main() -> None:
     failed = 0
     total = len(args.models) * args.count
 
-    for model in args.models:
+    reasoning_models = args.reasoning_models or [None] * len(args.models)
+    if len(reasoning_models) == 1 and len(args.models) > 1:
+        reasoning_models = reasoning_models * len(args.models)
+
+    for i, model in enumerate(args.models):
+        r_model = reasoning_models[i] if i < len(reasoning_models) else None
         print(f"\n{'=' * 60}")
-        print(f"Model: {model}")
+        print(f"Model: {model} (Reasoning: {r_model or model})")
         print(f"{'=' * 60}")
 
         for _ in tqdm(range(args.count), desc=model):
             result = generate_site(
                 client=client,
-                model=model,
+                coding_model=model,
                 save_path=args.output,
                 ctx=ctx,
+                reasoning_model=r_model,
                 country=args.country,
                 language=args.language,
                 temperature=args.temperature,
@@ -294,6 +306,8 @@ def print_run_header(args, provider: str, base_url: str, context_name: str) -> N
     print(f"[*] Agent depth:  {args.agent_depth}")
     print(f"[*] Vulnerability: {args.vulnerability or '(LLM chooses)'}")
     print(f"[*] Models:       {', '.join(args.models)}")
+    if args.reasoning_models:
+        print(f"[*] Reasoning:    {', '.join(args.reasoning_models)}")
 
 
 if __name__ == "__main__":

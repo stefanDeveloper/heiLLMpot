@@ -205,7 +205,7 @@ def ordered_navigation_items(routes: dict, ux_plan: dict) -> list[dict]:
     return ordered
 
 
-def generate_ux_plan(client, model: str, app_spec: dict,
+def generate_ux_plan(client, reasoning_model: str, app_spec: dict,
                      ctx: DeploymentContext, country: str,
                      language: str, context_guidance: str,
                      temperature: float) -> dict:
@@ -217,7 +217,7 @@ def generate_ux_plan(client, model: str, app_spec: dict,
         country=country,
         language=language,
     )
-    raw_plan = client.generate(prompt, model, temperature=temperature)
+    raw_plan = client.generate(prompt, reasoning_model, temperature=temperature)
     return extract_json(raw_plan)
 
 
@@ -276,8 +276,8 @@ def _load_vulnerability_preset(preset_name: str) -> tuple[dict, str]:
     return meta, ctx_str
 
 
-def generate_site(client, model: str, save_path: str,
-                  ctx: DeploymentContext, country: str = "",
+def generate_site(client, coding_model: str, save_path: str,
+                  ctx: DeploymentContext, reasoning_model: Optional[str] = None, country: str = "",
                   language: str = "English",
                   temperature: float = 0.3,
                   agent_depth: str = "standard",
@@ -286,7 +286,8 @@ def generate_site(client, model: str, save_path: str,
 
     Args:
         client: LLM client (OllamaClient or any HostedLLMClient).
-        model: Model name string.
+        coding_model: Model name string.
+        reasoning_model: Optional model for reasoning/critique.
         save_path: Root output directory. Each site gets its own sub-folder.
         ctx: DeploymentContext controlling org type and prompts.
         country: ISO-3166 hint, empty = LLM chooses.
@@ -301,8 +302,11 @@ def generate_site(client, model: str, save_path: str,
         raise ValueError(f"agent_depth must be one of: {sorted(AGENT_DEPTHS)}")
 
     site_id = str(uuid.uuid4())
+    if reasoning_model is None:
+        reasoning_model = coding_model
+
     print(f"\n[*] Generating site {site_id[:8]}... "
-          f"(model={model}, context={ctx.context_name}, "
+          f"(coding={coding_model}, reasoning={reasoning_model}, context={ctx.context_name}, "
           f"country={country or 'any'}, lang={language}, "
           f"depth={agent_depth})")
 
@@ -332,7 +336,7 @@ def generate_site(client, model: str, save_path: str,
         )
         if vuln_context:
             spec_prompt += f"\n{vuln_context}"
-        raw_spec = client.generate(spec_prompt, model, temperature=temperature)
+        raw_spec = client.generate(spec_prompt, coding_model, temperature=temperature)
         app_spec = extract_json(raw_spec)
     except Exception as e:
         print(f"  [error] Failed to generate app spec: {e}")
@@ -356,7 +360,7 @@ def generate_site(client, model: str, save_path: str,
         try:
             ux_plan = generate_ux_plan(
                 client=client,
-                model=model,
+                reasoning_model=reasoning_model,
                 app_spec=app_spec,
                 ctx=ctx,
                 country=app_country or country_hint,
@@ -374,7 +378,8 @@ def generate_site(client, model: str, save_path: str,
     print("  [3/6] Generating HTML pages...")
     route_responses = generate_route_pages(
         client=client,
-        model=model,
+        coding_model=coding_model,
+        reasoning_model=reasoning_model,
         ctx=ctx,
         app_spec=app_spec,
         app_name=app_name,
@@ -399,7 +404,7 @@ def generate_site(client, model: str, save_path: str,
     print("  [4/6] Generating SSH environment profile...")
     ssh_profile = generate_ssh_profile(
         client=client,
-        model=model,
+        coding_model=coding_model,
         ctx=ctx,
         app_name=app_name,
         domain=domain,
@@ -421,7 +426,8 @@ def generate_site(client, model: str, save_path: str,
     # metadata.json
     _write_json(out_dir / "metadata.json", {
         "site_id": site_id,
-        "model": model,
+        "model": coding_model,
+        "reasoning_model": reasoning_model,
         "context": ctx.context_name,
         "country": app_country or country,
         "language": language,
@@ -522,7 +528,7 @@ def generate_site(client, model: str, save_path: str,
     return site_id
 
 
-def generate_route_pages(client, model: str, ctx: DeploymentContext,
+def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: DeploymentContext,
                          app_spec: dict, app_name: str, organization: str,
                          country_hint: str, app_country: str, language: str,
                          ux_plan: dict, context_guidance: str,
@@ -574,7 +580,7 @@ def generate_route_pages(client, model: str, ctx: DeploymentContext,
             )
 
             try:
-                html = clean_html(client.generate(prompt, model, temperature=0.2))
+                html = clean_html(client.generate(prompt, coding_model, temperature=0.2))
                 html = apply_html_contract(
                     html,
                     allowed_routes=allowed_routes,
@@ -583,7 +589,8 @@ def generate_route_pages(client, model: str, ctx: DeploymentContext,
                 )
                 html = repair_with_critic(
                     client=client,
-                    model=model,
+                    coding_model=coding_model,
+                    reasoning_model=reasoning_model,
                     html=html,
                     app_name=app_name,
                     organization=organization,
@@ -598,7 +605,8 @@ def generate_route_pages(client, model: str, ctx: DeploymentContext,
                 if agent_depth == "deep":
                     html = realism_qa(
                         client=client,
-                        model=model,
+                        coding_model=coding_model,
+                        reasoning_model=reasoning_model,
                         html=html,
                         app_name=app_name,
                         organization=organization,
@@ -615,7 +623,8 @@ def generate_route_pages(client, model: str, ctx: DeploymentContext,
                 if vuln_meta and vuln_meta.get("target_route") == path:
                     html = security_critic_pass(
                         client=client,
-                        model=model,
+                        coding_model=coding_model,
+                        reasoning_model=reasoning_model,
                         html=html,
                         app_name=app_name,
                         organization=organization,
@@ -692,7 +701,7 @@ def apply_html_contract(html: str, allowed_routes: list[str],
     return html
 
 
-def security_critic_pass(client, model: str, html: str, app_name: str,
+def security_critic_pass(client, coding_model: str, reasoning_model: str, html: str, app_name: str,
                          organization: str, method: str, path: str,
                          page_description: str, site_contract: str,
                          allowed_routes: list[str], vuln_meta: dict) -> str:
@@ -716,7 +725,7 @@ def security_critic_pass(client, model: str, html: str, app_name: str,
                 feedback=f"SECURITY FAILURE: {reason}",
                 html=html,
             ),
-            model,
+            coding_model,
             temperature=0.2,
         ))
         html = apply_html_contract(html, allowed_routes, path, method)
@@ -732,7 +741,7 @@ def security_critic_pass(client, model: str, html: str, app_name: str,
             exploit_hint=exploit_hint,
             html=html,
         ),
-        model,
+        reasoning_model,
         temperature=0.2,
     ).strip()
 
@@ -752,7 +761,7 @@ def security_critic_pass(client, model: str, html: str, app_name: str,
             feedback=sec_feedback,
             html=html,
         ),
-        model,
+        coding_model,
         temperature=0.2,
     ))
     revised = apply_html_contract(revised, allowed_routes, path, method)
@@ -763,7 +772,7 @@ def security_critic_pass(client, model: str, html: str, app_name: str,
     return html
 
 
-def repair_with_critic(client, model: str, html: str, app_name: str,
+def repair_with_critic(client, coding_model: str, reasoning_model: str, html: str, app_name: str,
                        organization: str, method: str, path: str,
                        page_description: str, language: str,
                        site_contract: str, allowed_routes: list[str]) -> str:
@@ -788,7 +797,7 @@ def repair_with_critic(client, model: str, html: str, app_name: str,
         )
         critic_feedback = client.generate(
             critic_prompt,
-            model,
+            reasoning_model,
             temperature=0.2,
         ).strip()
     else:
@@ -815,7 +824,7 @@ def repair_with_critic(client, model: str, html: str, app_name: str,
             feedback=critic_feedback,
             html=html,
         ),
-        model,
+        coding_model,
         temperature=0.2,
     ))
     revised = apply_html_contract(
@@ -841,7 +850,7 @@ def repair_with_critic(client, model: str, html: str, app_name: str,
     )
 
 
-def realism_qa(client, model: str, html: str, app_name: str,
+def realism_qa(client, coding_model: str, reasoning_model: str, html: str, app_name: str,
                organization: str, context_name: str, method: str, path: str,
                page_description: str, route_plan: str,
                site_contract: str, allowed_routes: list[str]) -> str:
@@ -857,7 +866,7 @@ def realism_qa(client, model: str, html: str, app_name: str,
         route_plan=route_plan,
         html=html,
     )
-    qa_feedback = client.generate(qa_prompt, model, temperature=0.2).strip()
+    qa_feedback = client.generate(qa_prompt, reasoning_model, temperature=0.2).strip()
     if "APPROVED" in qa_feedback.upper():
         print(f"    [agent] {method} {path}: realism QA approved")
         return html
@@ -874,7 +883,7 @@ def realism_qa(client, model: str, html: str, app_name: str,
             feedback=qa_feedback,
             html=html,
         ),
-        model,
+        coding_model,
         temperature=0.2,
     ))
     revised = apply_html_contract(
@@ -892,7 +901,7 @@ def realism_qa(client, model: str, html: str, app_name: str,
     return html
 
 
-def generate_ssh_profile(client, model: str, ctx: DeploymentContext,
+def generate_ssh_profile(client, coding_model: str, ctx: DeploymentContext,
                          app_name: str, domain: str, organization: str,
                          country: str, os_options_str: str,
                          temperature: float) -> dict:
@@ -905,7 +914,7 @@ def generate_ssh_profile(client, model: str, ctx: DeploymentContext,
             country=country,
             os_options=os_options_str,
         )
-        raw_ssh = client.generate(ssh_prompt, model, temperature=temperature)
+        raw_ssh = client.generate(ssh_prompt, coding_model, temperature=temperature)
         return extract_json(raw_ssh)
     except Exception as e:
         print(f"  [warn] SSH profile generation failed: {e}")

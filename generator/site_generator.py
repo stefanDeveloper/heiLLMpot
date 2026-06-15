@@ -22,15 +22,15 @@ from .html_utils import (
     verify_vulnerability_static,
 )
 from .nuclei_utils import generate_nuclei_templates
-from .prompts import (
+from .sitegen.prompts import (
     APP_SPEC_PROMPT,
     HTML_CRITIC_PROMPT,
     HTML_PAGE_PROMPT,
     HTML_REVISION_PROMPT,
     SECURITY_CRITIC_PROMPT,
     SSH_PROFILE_PROMPT,
-    safe_format,
 )
+from .sitegen.pipeline import generate_site
 
 
 def _org_slug(organization: str) -> str:
@@ -57,9 +57,10 @@ def build_context(context_arg: str) -> DeploymentContext:
 
 def generate_site(
     client: OllamaClient,
-    model: str,
+    coding_model: str,
     save_path: str,
     ctx: DeploymentContext,
+    reasoning_model: Optional[str] = None,
     country: str = "",
     language: str = "English",
     temperature: float = 0.3,
@@ -83,9 +84,12 @@ def generate_site(
     site_id = str(uuid.uuid4())
     print(
         f"\n[*] Generating site {site_id[:8]}... "
-        f"(model={model}, context={ctx.context_name}, "
+        f"(coding_model={coding_model}, reasoning_model={reasoning_model}, context={ctx.context_name}, "
         f"country={country or 'any'}, lang={language})"
     )
+
+    if reasoning_model is None:
+        reasoning_model = coding_model
 
     # Build prompt-friendly strings from context lists
     org_types_list = "\n".join(f"- {t}" for t in ctx.org_types)
@@ -119,7 +123,7 @@ def generate_site(
             print(f"  [⚠] Vulnerability preset '{vulnerability_preset}' not found.")
     print("  [1/4] Generating app specification...")
     try:
-        spec_prompt = safe_format(APP_SPEC_PROMPT,
+        spec_prompt = APP_SPEC_PROMPT.format(
             context_name=ctx.context_name,
             org_types_list=org_types_list,
             country_hint=country_hint,
@@ -130,7 +134,7 @@ def generate_site(
         if vuln_context:
             spec_prompt += f"\n{vuln_context}"
 
-        raw_spec = client.generate(spec_prompt, model, temperature=temperature)
+        raw_spec = client.generate(spec_prompt, coding_model, temperature=temperature)
         app_spec = extract_json(raw_spec)
     except Exception as e:
         print(f"  [!] Failed to generate app spec: {e}")
@@ -202,7 +206,7 @@ def generate_site(
             else:
                 user_state = "Not authenticated (anonymous visitor)"
 
-            prompt = safe_format(HTML_PAGE_PROMPT,
+            prompt = HTML_PAGE_PROMPT.format(
                 app_name=app_name,
                 organization=organization,
                 country=app_country or country_hint,
@@ -214,6 +218,10 @@ def generate_site(
                 nav_routes=nav_routes,
                 brand_color_line=brand_color_line,
                 logo_line=logo_line,
+                context_guidance="No additional context guidance.",
+                ux_plan="Use professional enterprise dashboard layout.",
+                route_plan="Follow the page description for layout.",
+                site_contract="Use only the listed routes for navigation.",
                 brand_color_instruction=brand_color_instruction,
                 context_name=ctx.context_name,
                 language=language,
@@ -237,7 +245,7 @@ def generate_site(
                 )
 
             try:
-                raw_html = client.generate(prompt, model, temperature=0.2)
+                raw_html = client.generate(prompt, coding_model, temperature=0.2)
                 html = clean_html(raw_html)
 
                 # Validate and attempt repair on second pass
@@ -251,17 +259,18 @@ def generate_site(
 
                 # --- Critic loop ---
                 print(f"    [~] {method} {path}: asking critic...")
-                critic_prompt = safe_format(HTML_CRITIC_PROMPT,
+                critic_prompt = HTML_CRITIC_PROMPT.format(
                     app_name=app_name,
                     organization=organization,
                     method=method,
                     path=path,
                     page_description=info.get("description", ""),
+                    site_contract="Use only the listed routes for navigation.",
                     language=language,
                     html=html,
                 )
                 critic_feedback = client.generate(
-                    critic_prompt, model, temperature=0.2
+                    critic_prompt, reasoning_model, temperature=0.2
                 ).strip()
 
                 if "APPROVED" not in critic_feedback.upper():
@@ -269,17 +278,18 @@ def generate_site(
                         f"    [~] {method} {path}: "
                         "Critic suggested improvements. Revising..."
                     )
-                    revision_prompt = safe_format(HTML_REVISION_PROMPT,
+                    revision_prompt = HTML_REVISION_PROMPT.format(
                         app_name=app_name,
                         organization=organization,
                         method=method,
                         path=path,
                         page_description=info.get("description", ""),
+                        site_contract="Use only the listed routes for navigation.",
                         feedback=critic_feedback,
                         html=html,
                     )
                     raw_html_revised = client.generate(
-                        revision_prompt, model, temperature=0.2
+                        revision_prompt, coding_model, temperature=0.2
                     )
                     html_revised = clean_html(raw_html_revised)
 
@@ -308,23 +318,24 @@ def generate_site(
                     if not is_valid_static:
                         print(f"    [!] {method} {path}: Static check failed: {reason}")
                         # Force a revision based on static check failure
-                        sec_revision_prompt = safe_format(HTML_REVISION_PROMPT,
+                        sec_revision_prompt = HTML_REVISION_PROMPT.format(
                             app_name=app_name,
                             organization=organization,
                             method=method,
                             path=path,
                             page_description=info.get("description", ""),
+                            site_contract="Use only the listed routes for navigation.",
                             feedback=f"SECURITY FAILURE: {reason}",
                             html=html,
                         )
                         raw_html_revised = client.generate(
-                            sec_revision_prompt, model, temperature=0.2
+                            sec_revision_prompt, coding_model, temperature=0.2
                         )
                         html = clean_html(raw_html_revised)
 
                     # 2. LLM Security Critic
                     print(f"    [!] {method} {path}: asking security critic...")
-                    sec_critic_prompt = safe_format(SECURITY_CRITIC_PROMPT,
+                    sec_critic_prompt = SECURITY_CRITIC_PROMPT.format(
                         app_name=app_name,
                         vuln_type=vuln_spec.get("type"),
                         path=path,
@@ -333,7 +344,7 @@ def generate_site(
                         html=html,
                     )
                     sec_feedback = client.generate(
-                        sec_critic_prompt, model, temperature=0.2
+                        sec_critic_prompt, reasoning_model, temperature=0.2
                     ).strip()
 
                     if "SECURELY_VULNERABLE" not in sec_feedback.upper():
@@ -341,17 +352,18 @@ def generate_site(
                             f"    [!] {method} {path}: Security critic failed. "
                             "Revising for exploitability..."
                         )
-                        sec_revision_prompt = safe_format(HTML_REVISION_PROMPT,
+                        sec_revision_prompt = HTML_REVISION_PROMPT.format(
                             app_name=app_name,
                             organization=organization,
                             method=method,
                             path=path,
                             page_description=info.get("description", ""),
+                            site_contract="Use only the listed routes for navigation.",
                             feedback=sec_feedback,
                             html=html,
                         )
                         raw_html_revised = client.generate(
-                            sec_revision_prompt, model, temperature=0.2
+                            sec_revision_prompt, coding_model, temperature=0.2
                         )
                         html_revised = clean_html(raw_html_revised)
 
@@ -378,7 +390,7 @@ def generate_site(
     print("  [3/4] Generating SSH environment profile...")
     ssh_profile = None
     try:
-        ssh_prompt = safe_format(SSH_PROFILE_PROMPT,
+        ssh_prompt = SSH_PROFILE_PROMPT.format(
             context_name=ctx.context_name,
             app_name=app_name,
             domain=domain,
@@ -386,7 +398,7 @@ def generate_site(
             country=app_country or country_hint,
             os_options=os_options_str,
         )
-        raw_ssh = client.generate(ssh_prompt, model, temperature=temperature)
+        raw_ssh = client.generate(ssh_prompt, coding_model, temperature=temperature)
         ssh_profile = extract_json(raw_ssh)
     except Exception as e:
         print(f"  [⚠] SSH profile generation failed: {e}")
@@ -431,7 +443,8 @@ def generate_site(
 
     metadata = {
         "site_id": site_id,
-        "model": model,
+        "model": coding_model,
+        "reasoning_model": reasoning_model,
         "context": ctx.context_name,
         "country": app_country or country,
         "language": language,
