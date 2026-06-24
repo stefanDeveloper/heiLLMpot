@@ -121,15 +121,14 @@ Examples:
         help="LLM sampling temperature for spec/SSH generation (default: 0.3)",
     )
     parser.add_argument(
-        "--vulnerability",
-        type=str,
-        default=None,
+        "--vulnerabilities",
+        nargs="*",
+        default=[],
         metavar="PRESET",
         help=(
-            "Enforce a specific vulnerability preset "
-            "(e.g. idor, sql_injection, stored_xss, path_traversal, "
-            "broken_auth, open_redirect). Presets live in "
-            "generator/vulnerabilities/. Omit to let the LLM choose freely."
+            "Enforce specific vulnerability presets "
+            "(e.g. idor sql_injection stored_xss). Presets live in "
+            "generator/vulnerabilities/. Omit to pick randomly."
         ),
     )
 
@@ -273,8 +272,7 @@ def main() -> None:
                 country=args.country,
                 language=args.language,
                 temperature=args.temperature,
-                agent_depth=args.agent_depth,
-                vulnerability_preset=args.vulnerability,
+                vulnerability_presets=args.vulnerabilities,
             )
             if result:
                 generated += 1
@@ -304,7 +302,7 @@ def print_run_header(args, provider: str, base_url: str, context_name: str) -> N
     print(f"[*] Base URL:     {base_url}")
     print(f"[*] Temperature:  {args.temperature}")
     print(f"[*] Agent depth:  {args.agent_depth}")
-    print(f"[*] Vulnerability: {args.vulnerability or '(LLM chooses)'}")
+    print(f"[*] Vulnerabilities: {', '.join(args.vulnerabilities) if args.vulnerabilities else '(Randomly chosen)'}")
     print(f"[*] Models:       {', '.join(args.models)}")
     if args.reasoning_models:
         print(f"[*] Reasoning:    {', '.join(args.reasoning_models)}")

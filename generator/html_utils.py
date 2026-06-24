@@ -125,4 +125,8 @@ def verify_vulnerability_static(
         if f'name="{parameter}"' not in html and f"name='{parameter}'" not in html:
             return False, f"Parameter '{parameter}' not found in form for XSS injection."
 
+    if "command" in vuln_type.lower() or "rce" in vuln_type.lower():
+        if f'name="{parameter}"' not in html and f"name='{parameter}'" not in html:
+            return False, f"Vulnerable parameter '{parameter}' not found in any form field for Command Injection."
+
     return True, "Static check passed."

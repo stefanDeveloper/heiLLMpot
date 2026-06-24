@@ -19,6 +19,16 @@ data "aws_ami" "ubuntu" {
   }
 }
 
+data "aws_ami" "ubuntu_arm64" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-arm64-server-*"]
+  }
+}
+
 resource "tls_private_key" "generated" {
   count     = local.key_name == "" ? 1 : 0
   algorithm = "RSA"
@@ -182,7 +192,7 @@ module "honeybot" {
   tags                 = local.extra_tags
   active_site          = local.active_site
 
-  ami_id        = data.aws_ami.ubuntu.id
+  ami_id        = data.aws_ami.ubuntu_arm64.id
   vpc_id        = data.aws_vpc.default.id
   subnet_id     = data.aws_subnets.default.ids[count.index % length(data.aws_subnets.default.ids)]
   instance_type = local.honeybot_instance_type

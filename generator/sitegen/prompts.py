@@ -22,8 +22,6 @@ for the specified country/language. Roles: {roles_list}
 3. Each user should have role-specific data (for example, a doctor has patient \
 appointments, a student has enrolled courses)
 4. Routes must include at minimum: /, /login, plus 3-5 app-specific routes
-5. Include a "vulnerability" field describing one intentional weakness (SQL \
-injection, XSS, IDOR, path traversal, etc.)
 
 Output strict JSON with this schema:
 {{
@@ -33,7 +31,6 @@ Output strict JSON with this schema:
   "organization": "string (e.g., Springfield General Hospital)",
   "domain": "string (e.g., portal.springfield-hospital.org)",
   "country": "string (ISO 3166-1 alpha-2, e.g. US, DE, FR)",
-  "vulnerability": "string describing the intentional vulnerability",
   "users": [
     {{
       "username": "string",
@@ -145,11 +142,13 @@ CORE REQUIREMENTS
 MULTI-PAGE NAVIGATION (CRITICAL)
 ═══════════════════════════════════════════════════════════════════════
 
-4. Build a CONSISTENT navigation shell that is identical across all pages:
-   - A fixed left sidebar (250px) with the organization logo/name at top,
+4. Build a CONTEXTUAL navigation shell based on the provided app routes:
+   - For authenticated pages: Build a fixed left sidebar (250px) with the organization logo/name at top,
      followed by navigation links for EVERY route listed in the app routes.
-   - A sticky top bar with the current page title and user identity/logout.
-   - A scrollable main content area to the right of the sidebar.
+     Include a sticky top bar with the current page title and user identity/logout.
+   - For public pages (like login): Do not include the sidebar. Instead, provide a simple header
+     or minimalist navigation if there are multiple public routes.
+   - A scrollable main content area must contain the actual page content.
 5. EVERY navigation link MUST use a real <a href="/route"> pointing to one \
    of the allowed routes. The current page's link must be visually highlighted \
    (active state with accent color).
@@ -168,9 +167,8 @@ VISUAL DESIGN (PREMIUM QUALITY)
     active nav items, primary buttons, and key headings.
 9.  Login pages: use a centered card layout with the organization logo, \
     username + password fields, a prominent "Sign In" button, and a subtle \
-    footer. Include a dark or gradient background behind the card. Still \
-    include the sidebar (collapsed or hidden) so that the nav structure is \
-    consistent.
+    footer. Include a dark or gradient background behind the card. Do NOT \
+    include the sidebar on the login page; keep it focused on the auth flow.
 10. Dashboard/authenticated pages MUST show rich, sector-appropriate content:
     - Summary cards with metrics (e.g. "Active Users: 1,247", dates, statuses)
     - Data tables with 4-6 realistic rows (real-looking names, IDs, dates)
@@ -221,9 +219,9 @@ Site-wide HTML contract:
 
 Review the following HTML for these critical criteria:
 
-1. **Multi-page navigation**: Does the page have a sidebar with working links \
-   to all allowed routes? Are class names consistent (.sidebar, .top-bar, \
-   .main-content)? Is the current route marked active?
+1. **Multi-page navigation**: Does the page respect the contextual navigation shell specified \
+   in the site contract? Are class names consistent (.sidebar, .top-bar, \
+   .main-content) for authenticated pages? Is the current route marked active?
 2. **Premium visual quality**: Does the page look like a real production portal? \
    Check for proper spacing, card-based layouts, professional typography, \
    subtle shadows, and branded colors.
@@ -292,9 +290,9 @@ Previous HTML:
 
 Revision requirements:
 - Incorporate ALL feedback items.
-- PRESERVE the page shell: sidebar with .sidebar, topbar with .top-bar, main \
-  content with .main-content. Do NOT change the navigation structure or class \
-  names.
+- PRESERVE the appropriate page shell: sidebar/topbar for authenticated pages, \
+  or minimalist layout for public pages. Do NOT change the contextual navigation \
+  structure or class names.
 - PRESERVE CSS custom properties (--brand-color etc.) and the overall design \
   system.
 - Keep the navigation links identical: same routes, same labels, same order.

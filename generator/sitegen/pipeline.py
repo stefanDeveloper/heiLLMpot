@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import uuid
 from datetime import datetime
@@ -129,14 +130,13 @@ def fallback_ux_plan(app_spec: dict) -> dict:
     }
 
 
-def build_site_contract(app_spec: dict, ux_plan: dict) -> str:
+def build_site_contract(app_spec: dict, ux_plan: dict, contextual_routes: dict) -> str:
     """Create stable cross-page rules for the HTML generation agents."""
-    routes = app_spec.get("routes", {})
-    nav_items = ordered_navigation_items(routes, ux_plan)
+    nav_items = ordered_navigation_items(contextual_routes, ux_plan)
     nav_lines = "\n".join(
         f"- {item['path']}: {item['label']}" for item in nav_items
     )
-    route_lines = "\n".join(f"- {path}" for path in routes)
+    route_lines = "\n".join(f"- {path}" for path in contextual_routes)
 
     return f"""\
 Allowed interactive route targets:
@@ -276,12 +276,21 @@ def _load_vulnerability_preset(preset_name: str) -> tuple[dict, str]:
     return meta, ctx_str
 
 
+def _get_random_vulnerabilities(count_range: tuple[int, int] = (1, 3)) -> list[str]:
+    vuln_dir = Path(__file__).resolve().parents[1] / "vulnerabilities"
+    available = [p.stem for p in vuln_dir.glob("*.json")]
+    if not available:
+        return []
+    count = random.randint(count_range[0], min(count_range[1], len(available)))
+    return random.sample(available, count)
+
+
 def generate_site(client, coding_model: str, save_path: str,
                   ctx: DeploymentContext, reasoning_model: Optional[str] = None, country: str = "",
                   language: str = "English",
                   temperature: float = 0.3,
                   agent_depth: str = "standard",
-                  vulnerability_preset: Optional[str] = None) -> Optional[str]:
+                  vulnerability_presets: Optional[list[str]] = None) -> Optional[str]:
     """Generate a complete honeypot site definition.
 
     Args:
@@ -294,8 +303,8 @@ def generate_site(client, coding_model: str, save_path: str,
         language: Natural language for UI content.
         temperature: Sampling temperature for spec / SSH generation.
         agent_depth: 'basic' | 'standard' | 'deep'.
-        vulnerability_preset: Name of a preset in generator/vulnerabilities/
-            (e.g. 'idor', 'sql_injection'). None = LLM chooses freely.
+        vulnerability_presets: List of preset names in generator/vulnerabilities/
+            (e.g. ['idor', 'sql_injection']). None/empty = random selection.
     """
     agent_depth = agent_depth.lower()
     if agent_depth not in AGENT_DEPTHS:
@@ -316,11 +325,20 @@ def generate_site(client, coding_model: str, save_path: str,
     os_options_str = "\n".join(f"- {o}" for o in ctx.os_options)
     context_guidance = build_context_guidance(ctx)
 
-    # ── Step 0: Load vulnerability preset ────────────────────────────
-    vuln_meta: dict = {}
-    vuln_context: str = ""
-    if vulnerability_preset:
-        vuln_meta, vuln_context = _load_vulnerability_preset(vulnerability_preset)
+    # ── Step 0: Load vulnerability presets ────────────────────────────
+    if not vulnerability_presets:
+        vulnerability_presets = _get_random_vulnerabilities()
+        print(f"  [*] Randomly selected vulnerabilities: {', '.join(vulnerability_presets)}")
+
+    vuln_metas: list[dict] = []
+    vuln_contexts: list[str] = []
+    for preset in vulnerability_presets:
+        meta, context = _load_vulnerability_preset(preset)
+        if meta:
+            vuln_metas.append(meta)
+            vuln_contexts.append(context)
+
+    combined_vuln_context = "\n".join(vuln_contexts)
 
     # ── Step 1: App specification ─────────────────────────────────────
     print("  [1/6] Generating app specification...")
@@ -334,8 +352,8 @@ def generate_site(client, coding_model: str, save_path: str,
             context_guidance=context_guidance,
             roles_list=roles_list,
         )
-        if vuln_context:
-            spec_prompt += f"\n{vuln_context}"
+        if combined_vuln_context:
+            spec_prompt += f"\n{combined_vuln_context}"
         raw_spec = client.generate(spec_prompt, coding_model, temperature=temperature)
         app_spec = extract_json(raw_spec)
     except Exception as e:
@@ -390,7 +408,7 @@ def generate_site(client, coding_model: str, save_path: str,
         ux_plan=ux_plan,
         context_guidance=context_guidance,
         agent_depth=agent_depth,
-        vuln_meta=vuln_meta,
+        vuln_metas=vuln_metas,
     )
     missing_pages = find_missing_route_pages(app_spec, route_responses)
     if missing_pages:
@@ -440,35 +458,26 @@ def generate_site(client, coding_model: str, save_path: str,
         "server_profile": server_profile,
     })
 
-    # vulnerability.json
-    vuln_raw = app_spec.get("vulnerability", {})
-    vuln_type_str = (
-        vuln_raw.get("type") if isinstance(vuln_raw, dict)
-        else (vuln_meta.get("type") or str(vuln_raw))
-    )
-    vuln_target = (
-        vuln_raw.get("target_route") if isinstance(vuln_raw, dict)
-        else vuln_meta.get("target_route")
-    )
-    vuln_param = (
-        vuln_raw.get("parameter") if isinstance(vuln_raw, dict)
-        else vuln_meta.get("parameter")
-    )
-    _write_json(out_dir / "vulnerability.json", {
-        "preset": vulnerability_preset,
-        "type": vuln_type_str,
-        "description": (
-            vuln_raw.get("description", "") if isinstance(vuln_raw, dict)
-            else vuln_meta.get("description", "")
-        ),
-        "target_route": vuln_target,
-        "parameter": vuln_param,
-        "exploit_hint": (
-            vuln_raw.get("exploit_hint", "") if isinstance(vuln_raw, dict)
-            else vuln_meta.get("exploit_hint", "")
-        ),
-        "is_structured": isinstance(vuln_raw, dict),
-    })
+    # vulnerabilities.json
+    output_vulns = []
+    
+    # Try to parse LLM's returned vulnerabilities array, fallback to our generated one
+    llm_vulns = app_spec.get("vulnerabilities", [])
+    if isinstance(llm_vulns, list) and llm_vulns:
+        output_vulns = llm_vulns
+    else:
+        for preset, meta in zip(vulnerability_presets, vuln_metas):
+            output_vulns.append({
+                "preset": preset,
+                "type": meta.get("type"),
+                "description": meta.get("description"),
+                "target_route": meta.get("target_route"),
+                "parameter": meta.get("parameter"),
+                "exploit_hint": meta.get("exploit_hint"),
+                "is_structured": True
+            })
+            
+    _write_json(out_dir / "vulnerabilities.json", output_vulns)
 
     # users.json
     _write_json(out_dir / "users.json", app_spec.get("users", []))
@@ -509,9 +518,7 @@ def generate_site(client, coding_model: str, save_path: str,
             output_dir=out_dir,
             site_id=site_id,
             domain=domain,
-            vuln_type=vuln_type_str or "generic",
-            target_route=vuln_target or "/login",
-            parameter=vuln_param or "input",
+            vulnerabilities=output_vulns,
             users=users_list,
         )
         print(f"  [ok] Nuclei templates: {[f.name for f in nuclei_files]}")
@@ -533,15 +540,12 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
                          country_hint: str, app_country: str, language: str,
                          ux_plan: dict, context_guidance: str,
                          agent_depth: str,
-                         vuln_meta: Optional[dict] = None) -> dict:
+                         vuln_metas: list[dict] = None) -> dict:
+    if vuln_metas is None:
+        vuln_metas = []
     route_responses: dict = {}
     routes = app_spec.get("routes", {})
     allowed_routes = list(routes.keys())
-    nav_routes = ", ".join(
-        f"{path} ({info.get('page_title', info.get('description', 'Page'))})"
-        for path, info in routes.items()
-    )
-    site_contract = build_site_contract(app_spec, ux_plan)
 
     brand_color_line, brand_color_instruction = build_brand_prompt(ctx)
     logo_line = (
@@ -555,6 +559,19 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
         route_responses[path] = {}
         page_title = info.get("page_title", info.get("description", app_name))
         route_plan_prompt = json_for_prompt(get_route_plan(ux_plan, path))
+        
+        # Build contextual routes based on authentication state
+        is_secure = info.get("auth_required", False)
+        contextual_routes = {
+            p: r_info for p, r_info in routes.items() 
+            if r_info.get("auth_required", False) == is_secure
+        }
+        
+        nav_routes = ", ".join(
+            f"{p} ({r_info.get('page_title', r_info.get('description', 'Page'))})"
+            for p, r_info in contextual_routes.items()
+        )
+        site_contract = build_site_contract(app_spec, ux_plan, contextual_routes)
 
         for method in info.get("methods", ["GET"]):
             user_state = user_state_for_route(app_spec, info)
@@ -619,22 +636,23 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
                         allowed_routes=allowed_routes,
                     )
 
-                # Security critic: only for the vulnerability target route
-                if vuln_meta and vuln_meta.get("target_route") == path:
-                    html = security_critic_pass(
-                        client=client,
-                        coding_model=coding_model,
-                        reasoning_model=reasoning_model,
-                        html=html,
-                        app_name=app_name,
-                        organization=organization,
-                        method=method,
-                        path=path,
-                        page_description=info.get("description", ""),
-                        site_contract=site_contract,
-                        allowed_routes=allowed_routes,
-                        vuln_meta=vuln_meta,
-                    )
+                # Security critic: check all vulnerabilities assigned to this route
+                for v_meta in vuln_metas:
+                    if v_meta.get("target_route") == path:
+                        html = security_critic_pass(
+                            client=client,
+                            coding_model=coding_model,
+                            reasoning_model=reasoning_model,
+                            html=html,
+                            app_name=app_name,
+                            organization=organization,
+                            method=method,
+                            path=path,
+                            page_description=info.get("description", ""),
+                            site_contract=site_contract,
+                            allowed_routes=allowed_routes,
+                            vuln_meta=v_meta,
+                        )
 
                 html = apply_html_contract(
                     html,

@@ -257,6 +257,43 @@ http:
 """
 
 
+def gen_command_injection(domain: str, target_route: str, parameter: str, site_id: str) -> str:
+    """Command injection — checks if the server executes an appended shell command."""
+    path = target_route if target_route.startswith("/") else f"/{target_route}"
+    payload = ";id"
+    payload_enc = "%3Bid"
+    header = _header(
+        template_id=f"honeypot-rce-{site_id[:8]}",
+        name=f"Command Injection (RCE) – {domain}",
+        author="heiLLMpot",
+        severity="critical",
+        description=(
+            f"Detects OS command injection via the '{parameter}' parameter at {path} on {domain}. "
+            "Checks if the server blindly executes appended shell commands and reflects output. "
+            "Intentional honeypot vulnerability."
+        ),
+        tags=["rce", "command-injection", "honeypot"],
+    )
+    return header + f"""
+http:
+  - method: GET
+    path:
+      - "{{{{BaseURL}}}}{path}?{parameter}=127.0.0.1{payload_enc}"
+      - "{{{{BaseURL}}}}{path}?{parameter}=127.0.0.1{payload}"
+
+    matchers-condition: and
+    matchers:
+      - type: regex
+        regex:
+          - "uid=[0-9]+\\(.*?\\) gid=[0-9]+\\(.*?\\)"
+        part: body
+
+      - type: status
+        status:
+          - 200
+"""
+
+
 def gen_open_redirect(domain: str, target_route: str, parameter: str, site_id: str) -> str:
     """Open redirect — checks if the server follows an arbitrary Location redirect."""
     path = target_route if target_route.startswith("/") else f"/{target_route}"
@@ -441,6 +478,9 @@ _VULN_TYPE_MAP: dict[str, str] = {
     "lfi": "lfi",
     "open redirect": "redirect",
     "unvalidated redirect": "redirect",
+    "command injection": "rce",
+    "os command injection": "rce",
+    "rce": "rce",
 }
 
 
@@ -459,9 +499,7 @@ def generate_nuclei_templates(
     output_dir: Path,
     site_id: str,
     domain: str,
-    vuln_type: str,
-    target_route: str,
-    parameter: str,
+    vulnerabilities: list[dict],
     users: list[dict],
 ) -> list[Path]:
     """
@@ -475,60 +513,66 @@ def generate_nuclei_templates(
     nuclei_dir = output_dir / "nuclei"
     nuclei_dir.mkdir(parents=True, exist_ok=True)
 
-    canonical = _classify_vuln(vuln_type)
-    written: list[Path] = []
+    # ── Vulnerability-specific templates ───────────────────────────────────────
+    for vuln in vulnerabilities:
+        vuln_type = vuln.get("type", "generic")
+        target_route = vuln.get("target_route", "/")
+        parameter = vuln.get("parameter", "input")
+        canonical = _classify_vuln(vuln_type)
+        vuln_path: Path | None = None
 
-    # ── Always: default credentials ────────────────────────────────────────────
-    p = nuclei_dir / "default_credentials.yaml"
-    p.write_text(gen_default_credentials(domain, "/login", site_id, users), encoding="utf-8")
-    written.append(p)
+        if canonical == "sqli":
+            vuln_path = nuclei_dir / f"sql_injection_{parameter}.yaml"
+            vuln_path.write_text(
+                gen_sql_injection(domain, target_route, parameter, site_id), encoding="utf-8"
+            )
+        elif canonical == "rxss":
+            vuln_path = nuclei_dir / f"reflected_xss_{parameter}.yaml"
+            vuln_path.write_text(
+                gen_reflected_xss(domain, target_route, parameter, site_id), encoding="utf-8"
+            )
+        elif canonical == "sxss":
+            vuln_path = nuclei_dir / f"stored_xss_{parameter}.yaml"
+            vuln_path.write_text(
+                gen_stored_xss(domain, target_route, parameter, site_id), encoding="utf-8"
+            )
+        elif canonical == "idor":
+            vuln_path = nuclei_dir / f"idor_{parameter}.yaml"
+            vuln_path.write_text(
+                gen_idor(domain, target_route, parameter, site_id), encoding="utf-8"
+            )
+        elif canonical == "lfi":
+            vuln_path = nuclei_dir / f"path_traversal_{parameter}.yaml"
+            vuln_path.write_text(
+                gen_path_traversal(domain, target_route, parameter, site_id), encoding="utf-8"
+            )
+        elif canonical == "rce":
+            vuln_path = nuclei_dir / f"command_injection_{parameter}.yaml"
+            vuln_path.write_text(
+                gen_command_injection(domain, target_route, parameter, site_id), encoding="utf-8"
+            )
+        elif canonical == "redirect":
+            vuln_path = nuclei_dir / f"open_redirect_{parameter}.yaml"
+            vuln_path.write_text(
+                gen_open_redirect(domain, target_route, parameter, site_id), encoding="utf-8"
+            )
+        else:
+            # Fallback: reflected XSS catches unknown types
+            vuln_path = nuclei_dir / f"generic_probe_{parameter}.yaml"
+            vuln_path.write_text(
+                gen_reflected_xss(domain, target_route, parameter, site_id), encoding="utf-8"
+            )
 
-    # ── Vulnerability-specific template ────────────────────────────────────────
-    vuln_path: Path | None = None
-    if canonical == "sqli":
-        vuln_path = nuclei_dir / "sql_injection.yaml"
-        vuln_path.write_text(
-            gen_sql_injection(domain, target_route, parameter, site_id), encoding="utf-8"
-        )
-    elif canonical == "rxss":
-        vuln_path = nuclei_dir / "reflected_xss.yaml"
-        vuln_path.write_text(
-            gen_reflected_xss(domain, target_route, parameter, site_id), encoding="utf-8"
-        )
-    elif canonical == "sxss":
-        vuln_path = nuclei_dir / "stored_xss.yaml"
-        vuln_path.write_text(
-            gen_stored_xss(domain, target_route, parameter, site_id), encoding="utf-8"
-        )
-    elif canonical == "idor":
-        vuln_path = nuclei_dir / "idor.yaml"
-        vuln_path.write_text(
-            gen_idor(domain, target_route, parameter, site_id), encoding="utf-8"
-        )
-    elif canonical == "lfi":
-        vuln_path = nuclei_dir / "path_traversal.yaml"
-        vuln_path.write_text(
-            gen_path_traversal(domain, target_route, parameter, site_id), encoding="utf-8"
-        )
-    elif canonical == "redirect":
-        vuln_path = nuclei_dir / "open_redirect.yaml"
-        vuln_path.write_text(
-            gen_open_redirect(domain, target_route, parameter, site_id), encoding="utf-8"
-        )
-    else:
-        # Fallback: reflected XSS catches unknown types
-        vuln_path = nuclei_dir / "generic_probe.yaml"
-        vuln_path.write_text(
-            gen_reflected_xss(domain, target_route, parameter, site_id), encoding="utf-8"
-        )
-
-    if vuln_path:
-        written.append(vuln_path)
+        if vuln_path:
+            written.append(vuln_path)
 
     # ── README ─────────────────────────────────────────────────────────────────
     readme = nuclei_dir / "README.md"
+    
+    vuln_types_str = ", ".join(v.get("type", "generic") for v in vulnerabilities)
+    
     readme.write_text(
-        gen_readme(domain, vuln_type, [p.name for p in written]),
+        gen_readme(domain, vuln_types_str, [p.name for p in written]),
         encoding="utf-8",
     )
 
