@@ -71,6 +71,16 @@ variable "active_site" {
   default     = ""
 }
 
+  variable "git_repo" {
+    description = "Git repository to clone for building honeybot."
+    type        = string
+  }
+
+  variable "git_branch" {
+    description = "Git branch to clone for building honeybot."
+    type        = string
+  }
+
 # ── AWS-specific variables ────────────────────────────────────────────────────
 
 variable "instance_type" {

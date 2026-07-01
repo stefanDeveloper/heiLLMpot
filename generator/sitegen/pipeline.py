@@ -23,6 +23,7 @@ from .html_tools import (
 )
 from .prompts import (
     APP_SPEC_PROMPT,
+    DESIGN_CRITIC_PROMPT,
     HTML_CRITIC_PROMPT,
     HTML_PAGE_PROMPT,
     HTML_REVISION_PROMPT,
@@ -150,8 +151,7 @@ Layout contract:
   for primary navigation, a sticky top bar for status/user controls, and a
   `.main-content` workspace. Keep class names `.sidebar`, `.top-bar`, and
   `.main-content` consistent across routes.
-- Login/authentication pages may use a centered auth card, but must keep the
-  same brand colors, typography, and route list.
+- Login/authentication pages (like /login) must NOT contain any navigation menu, sidebar, header links, tab bars, or list of routes. They must be completely clean and only show the login form card. Keep brand colors and typography consistent.
 - Mark only the current route as active. Do not move the nav between top,
   side, and footer from page to page.
 - Use responsive Bootstrap grids and table-responsive wrappers. Avoid fixed
@@ -554,6 +554,7 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
         else "Logo: use a text-based logo or leave it as the organization name"
     )
     ux_plan_prompt = json_for_prompt(ux_plan)
+    first_auth_page_html = None
 
     for path, info in routes.items():
         route_responses[path] = {}
@@ -575,6 +576,20 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
 
         for method in info.get("methods", ["GET"]):
             user_state = user_state_for_route(app_spec, info)
+            
+            previous_page_context = ""
+            if is_secure and first_auth_page_html:
+                previous_page_context = (
+                    "═══════════════════════════════════════════════════════════════════════\n"
+                    "CONSISTENCY REQUIREMENT (CRITICAL)\n"
+                    "═══════════════════════════════════════════════════════════════════════\n"
+                    "To ensure perfect consistency across the application, you MUST reuse the EXACT SAME "
+                    "navigation sidebar, top bar, layout structure, and <style> block from this previously generated page:\n\n"
+                    f"```html\n{first_auth_page_html}\n```\n\n"
+                    "DO NOT change the sidebar structure, the logo layout, or the CSS variables. "
+                    "Only replace the `.main-content` area to fit this current route's purpose."
+                )
+
             prompt = HTML_PAGE_PROMPT.format(
                 app_name=app_name,
                 organization=organization,
@@ -594,6 +609,7 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
                 brand_color_instruction=brand_color_instruction,
                 context_name=ctx.context_name,
                 language=language,
+                previous_page_context=previous_page_context,
             )
 
             try:
@@ -615,6 +631,20 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
                     path=path,
                     page_description=info.get("description", ""),
                     language=language,
+                    site_contract=site_contract,
+                    allowed_routes=allowed_routes,
+                )
+
+                html = design_critic_pass(
+                    client=client,
+                    coding_model=coding_model,
+                    reasoning_model=reasoning_model,
+                    html=html,
+                    app_name=app_name,
+                    organization=organization,
+                    method=method,
+                    path=path,
+                    page_description=info.get("description", ""),
                     site_contract=site_contract,
                     allowed_routes=allowed_routes,
                 )
@@ -660,6 +690,10 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
                     path=path,
                     method=method,
                 )
+                
+                if is_secure and not first_auth_page_html:
+                    first_auth_page_html = html
+
                 route_responses[path][method] = html
                 print(f"    [ok] {method} {path} ({len(html)} bytes)")
                 sleep(0.3)
@@ -787,6 +821,60 @@ def security_critic_pass(client, coding_model: str, reasoning_model: str, html: 
     if valid_rev:
         return revised
     print(f"    [warn] {method} {path}: security revision failed validation, keeping prior")
+    return html
+
+
+def design_critic_pass(client, coding_model: str, reasoning_model: str, html: str, app_name: str,
+                       organization: str, method: str, path: str,
+                       page_description: str, site_contract: str,
+                       allowed_routes: list[str]) -> str:
+    print(f"    [agent] {method} {path}: design critic")
+    critic_prompt = DESIGN_CRITIC_PROMPT.format(
+        app_name=app_name,
+        organization=organization,
+        method=method,
+        path=path,
+        page_description=page_description,
+        site_contract=site_contract,
+        html=html,
+    )
+    critic_feedback = client.generate(
+        critic_prompt,
+        reasoning_model,
+        temperature=0.2,
+    ).strip()
+
+    if "APPROVED" in critic_feedback.upper():
+        print(f"    [agent] {method} {path}: design critic approved")
+        return html
+
+    print(f"    [agent] {method} {path}: design critic requested revision")
+    revised = clean_html(client.generate(
+        HTML_REVISION_PROMPT.format(
+            app_name=app_name,
+            organization=organization,
+            method=method,
+            path=path,
+            page_description=page_description,
+            site_contract=site_contract,
+            feedback=critic_feedback,
+            html=html,
+        ),
+        coding_model,
+        temperature=0.2,
+    ))
+    revised = apply_html_contract(
+        revised,
+        allowed_routes=allowed_routes,
+        path=path,
+        method=method,
+    )
+    valid_revised, issues_revised = validate_html_basic(revised)
+    if valid_revised:
+        return revised
+
+    print(f"    [warn] {method} {path}: design revision had basic issues "
+          f"({', '.join(issues_revised)}), keeping prior version")
     return html
 
 

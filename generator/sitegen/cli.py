@@ -272,6 +272,7 @@ def main() -> None:
                 country=args.country,
                 language=args.language,
                 temperature=args.temperature,
+                agent_depth=args.agent_depth,
                 vulnerability_presets=args.vulnerabilities,
             )
             if result:

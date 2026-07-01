@@ -3,7 +3,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 resource "aws_security_group" "orchestrator" {
-  name        = "heillmpot-orchestrator-sg"
+  name_prefix = "heillmpot-orchestrator-sg-"
   description = "Security group for heiLLMpot orchestrator node"
   vpc_id      = var.vpc_id
 

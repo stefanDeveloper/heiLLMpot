@@ -74,4 +74,6 @@ runcmd:
   - mkdir -p /app/orchestrator/config
 
   # 5. Start the stack (building from sources on node)
-  - cd /app && docker compose up --build -d
+  - echo "heiLLMpot orchestrator starting..."
+  - cd /app && docker compose up --build -d orchestrator dashboard nginx
+  - echo "heiLLMpot orchestrator finished building and starting"

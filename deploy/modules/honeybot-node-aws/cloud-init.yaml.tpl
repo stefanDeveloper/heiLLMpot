@@ -45,22 +45,26 @@ runcmd:
 
   # ── Register with the orchestrator ─────────────────────────────────────────
   - |
-    RESPONSE=$(curl -skf --cacert /app/certs/ca.crt --cert /app/certs/client.crt --key /app/certs/client.key --retry 90 --retry-delay 10 --retry-connrefused \
-      -X POST "${orchestrator_url}/api/v1/nodes/register" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "node_id": "${node_id}",
-        "region":  "${region}",
-        "api_key": "${api_key}"
-      }')
+    while true; do
+      RESPONSE=$(curl -skf --cacert /app/certs/ca.crt --cert /app/certs/client.crt --key /app/certs/client.key \
+        -X POST "${orchestrator_url}/api/v1/nodes/register" \
+        -H "Content-Type: application/json" \
+        -d "{
+          \"node_id\": \"${node_id}\",
+          \"region\":  \"${region}\",
+          \"api_key\": \"${api_key}\"
+        }")
 
-    JWT_TOKEN=$(echo "$RESPONSE" | jq -r '.jwt_token // empty')
-
-    if [ -z "$JWT_TOKEN" ]; then
-      echo "[heiLLMpot] ERROR: Registration failed. Response: $RESPONSE" >&2
-      echo "$RESPONSE" > /app/logs/registration_error.json
-      exit 1
-    fi
+      if [ $? -eq 0 ]; then
+        JWT_TOKEN=$(echo "$RESPONSE" | jq -r '.jwt_token // empty')
+        if [ -n "$JWT_TOKEN" ]; then
+          break
+        fi
+      fi
+      
+      echo "Orchestrator is not ready, honeybots are waiting..."
+      sleep 60
+    done
 
     echo "$JWT_TOKEN" > /app/config/honeypot.token
     echo "[heiLLMpot] Node registered successfully: ${node_id}"
@@ -104,6 +108,9 @@ runcmd:
 
   # ── Start the honeybot container ───────────────────────────────────────────
   - |
+    echo "Honeybots are pulling the image now..."
+    docker pull ${honeybot_image}
+
     docker run -d \
       --name honeybot \
       --restart unless-stopped \

@@ -105,6 +105,8 @@ data "cloudinit_config" "honeybot" {
       ssl_client_crt   = var.ssl_client_crt
       ssl_client_key   = var.ssl_client_key
       active_site      = var.active_site
+      git_repo         = var.git_repo
+      git_branch       = var.git_branch
     })
   }
 }

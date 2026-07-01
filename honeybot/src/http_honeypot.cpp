@@ -91,6 +91,7 @@ void HttpHoneypot::load_sites() {
 
                             // New format: HTML is in "responses" sub-object
                             nlohmann::json responses;
+                            site.auth_required[path] = route_info.value("auth_required", false);
                             if (route_info.contains("responses") &&
                                 route_info["responses"].is_object()) {
                                 responses = route_info["responses"];
@@ -166,6 +167,7 @@ void HttpHoneypot::load_sites() {
 
                         // Check if this is the new format with "responses" key
                         nlohmann::json responses;
+                        site.auth_required[path] = methods.value("auth_required", false);
                         if (methods.contains("responses") &&
                             methods["responses"].is_object()) {
                             responses = methods["responses"];
@@ -397,10 +399,54 @@ void HttpHoneypot::handle_request(const httplib::Request& req,
             login_log["post_body"] = req.body.substr(0, 512);
         }
         Logger::instance().log("HTTP", "login", login_log);
+
+        // Redirect on successful login POST to the first authenticated route
+        std::string redirect_target = "/";
+        for (const auto& [r_path, r_auth] : active_site->auth_required) {
+            if (r_auth) {
+                redirect_target = r_path;
+                break;
+            }
+        }
+        res.status = 302;
+        res.set_header("Location", redirect_target);
+        res.set_content("Redirecting to " + redirect_target + "...", "text/plain");
+        return;
     }
 
     // Look up the route in the active site
     std::string path = req.path;
+    
+    // Auth Check: If the path requires auth but session is not authenticated, redirect to /login
+    bool needs_auth = false;
+    {
+        auto auth_it = active_site->auth_required.find(path);
+        if (auth_it != active_site->auth_required.end()) {
+            needs_auth = auth_it->second;
+        }
+    }
+    
+    bool is_auth = false;
+    {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        if (sessions_.count(session_id)) {
+            is_auth = sessions_[session_id].authenticated;
+        }
+    }
+    
+    if (needs_auth && !is_auth) {
+        res.status = 302;
+        res.set_header("Location", "/login");
+        res.set_content("Redirecting to login...", "text/plain");
+        Logger::instance().log("HTTP", "unauthorized_redirect", {
+            {"client_ip",   req.remote_addr},
+            {"path",        req.path},
+            {"session_id",  session_id},
+            {"site_id",     active_site->site_id}
+        });
+        return;
+    }
+
     auto route_it = active_site->routes.find(path);
     if (route_it == active_site->routes.end() && !path.empty()) {
         // Try without trailing slash or with it

@@ -128,6 +128,7 @@ Route-specific realism plan:
 {route_plan}
 Site-wide HTML contract:
 {site_contract}
+{previous_page_context}
 
 ═══════════════════════════════════════════════════════════════════════
 CORE REQUIREMENTS
@@ -146,9 +147,8 @@ MULTI-PAGE NAVIGATION (CRITICAL)
    - For authenticated pages: Build a fixed left sidebar (250px) with the organization logo/name at top,
      followed by navigation links for EVERY route listed in the app routes.
      Include a sticky top bar with the current page title and user identity/logout.
-   - For public pages (like login): Do not include the sidebar. Instead, provide a simple header
-     or minimalist navigation if there are multiple public routes.
-   - A scrollable main content area must contain the actual page content.
+   - For public pages (like login): Do NOT include the sidebar, topbar, tab bars, headers, or any navigation
+     links/menus. The login screen must be isolated and only show the credentials card.
 5. EVERY navigation link MUST use a real <a href="/route"> pointing to one \
    of the allowed routes. The current page's link must be visually highlighted \
    (active state with accent color).
@@ -160,29 +160,59 @@ MULTI-PAGE NAVIGATION (CRITICAL)
    .main-content.
 
 ═══════════════════════════════════════════════════════════════════════
-VISUAL DESIGN (PREMIUM QUALITY)
+VISUAL DESIGN & REALISM (PREMIUM QUALITY)
 ═══════════════════════════════════════════════════════════════════════
 
 8.  {brand_color_instruction}. Use it for: sidebar background or accent, \
     active nav items, primary buttons, and key headings.
-9.  Login pages: use a centered card layout with the organization logo, \
-    username + password fields, a prominent "Sign In" button, and a subtle \
-    footer. Include a dark or gradient background behind the card. Do NOT \
-    include the sidebar on the login page; keep it focused on the auth flow.
-10. Dashboard/authenticated pages MUST show rich, sector-appropriate content:
-    - Summary cards with metrics (e.g. "Active Users: 1,247", dates, statuses)
-    - Data tables with 4-6 realistic rows (real-looking names, IDs, dates)
-    - Activity feeds or notification panels
-    - Breadcrumb or page-section headers
-11. Use these CSS techniques for a polished, premium look:
-    - Card components with border-radius: 8-12px and subtle box-shadow
-    - Smooth transitions on hover (0.2s ease)
-    - Sidebar with a dark or branded background, white text, subtle hover bg
-    - Status badges with colored pills (green/amber/red)
-    - Proper spacing (padding, margin) — never cramped
-    - Responsive: use Bootstrap grid (col-md-*, col-lg-*) and table-responsive
-12. Every page must include a <style> block with custom CSS variables for \
-    the brand color, ensuring visual consistency.
+9.  Login page layout (/login):
+    - Hide ALL sidebars, menus, header links, and navigation tabs.
+    - Centered card layout with the organization logo, username + password fields, a prominent "Sign In" button, and a subtle footer.
+    - Include a dark, modern, or gradient background behind the card. Keep it clean and completely focused on the login form.
+10. Dashboard/authenticated pages MUST show highly realistic, sector-appropriate enterprise content:
+    - Summary cards/widgets with metrics (e.g., "Active Tasks: 1,247", "Sync Status: Healthy", "Last Update: 2 mins ago")
+    - Rich data tables with 4-6 realistic rows (names, IDs, timestamps, statuses).
+    - Table column formatting is CRITICAL: Ensure columns are properly aligned, header text matches data type, dates/currencies are properly formatted, and status values use colored badges (green/amber/red pills).
+    - Activity feeds, system alerts, or recent operation logs.
+11. Professional CSS styling to look like a modern SaaS portal (not simple HTML):
+    - Card components with rounded corners (border-radius: 8-12px) and subtle box-shadows.
+    - Hover effects with smooth transitions (0.2s ease).
+    - Sidebar with a dark/branded background, clean contrast, white text, and hover states.
+    - Balanced spacing (paddings, margins) and responsive tables (table-responsive).
+12. Every page must include a <style> block with custom CSS variables for brand colors to ensure absolute visual consistency.
+    - MUST define and use these exact variables: `--primary-color`, `--surface-color`, `--text-muted`.
+
+═══════════════════════════════════════════════════════════════════════
+GOLDEN EXAMPLE (DASHBOARD WIDGET / TABLE)
+═══════════════════════════════════════════════════════════════════════
+Use this HTML structure as inspiration for your components to ensure premium quality:
+```html
+<div class="card shadow-sm border-0 mb-4" style="border-radius: 10px;">
+  <div class="card-header bg-white border-bottom-0 pt-4 pb-0">
+    <h5 class="mb-0 fw-bold" style="color: var(--primary-color);">Recent Activity</h5>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="text-muted" style="font-size: 0.85rem; text-transform: uppercase;">
+          <tr>
+            <th>ID</th>
+            <th>Description</th>
+            <th class="text-end">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="fw-medium">#REQ-992</td>
+            <td>System synchronization</td>
+            <td class="text-end"><span class="badge bg-success rounded-pill">Active</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+```
 
 ═══════════════════════════════════════════════════════════════════════
 CONTENT & REALISM
@@ -221,10 +251,9 @@ Review the following HTML for these critical criteria:
 
 1. **Multi-page navigation**: Does the page respect the contextual navigation shell specified \
    in the site contract? Are class names consistent (.sidebar, .top-bar, \
-   .main-content) for authenticated pages? Is the current route marked active?
-2. **Premium visual quality**: Does the page look like a real production portal? \
-   Check for proper spacing, card-based layouts, professional typography, \
-   subtle shadows, and branded colors.
+   .main-content) for authenticated pages? Is the current route marked active? \
+   CRITICAL: If the route is /login, does it completely HIDE any sidebar, topbar, tab bars, header links, and nav menus?
+2. **Premium visual quality**: Does the page look like a real production portal? Check for card-based SaaS layouts, proper spacing (not cramped), aligned table columns, formatted statuses, dynamic indicators, rounded elements, and shadows. Ensure it doesn't look like simple, generic HTML.
 3. **Realism**: Is the content realistic? No placeholder text, lorem ipsum, \
    or obviously fake data. Names, dates, IDs, and statuses should be plausible.
 4. **HTML5 Validity**: Proper doctype, charset, viewport, closed tags.
@@ -233,7 +262,7 @@ Review the following HTML for these critical criteria:
 7. **No dead links**: Every href must point to an allowed route. No invented \
    routes. No dangling tags. No layout drift between pages.
 8. **Login page**: If this is /login, does it have a proper POST form with \
-   username/password fields and a styled card layout?
+   username/password fields and a styled card layout? (Reminder: It must NOT contain navigation menus or links).
 
 If the HTML is excellent and needs no changes, output exactly the word \
 "APPROVED".
@@ -267,6 +296,32 @@ Review the HTML for:
 
 If the page is excellent, output exactly "APPROVED".
 Otherwise, provide concise revision instructions. Do not output HTML.
+
+HTML to review:
+{html}
+"""
+
+
+DESIGN_CRITIC_PROMPT = """\
+You are an expert UI/UX Designer reviewing an HTML page for a honeypot web application.
+Your goal is to ensure the design is extremely realistic, clean, and visually aligned.
+
+Application: {app_name}
+Organization: {organization}
+Page: {method} {path} - {page_description}
+Site-wide HTML contract:
+{site_contract}
+
+Review the following HTML for these critical design criteria:
+
+1. **Table Formatting & Alignment**: Are data tables visually clean? Columns must be properly aligned. Headers must match the data type (e.g. numeric data right-aligned, text left-aligned). Row spacing and borders should look like a professional SaaS portal.
+2. **Login Page Navigation**: CRITICAL: If the route is /login, verify there are ABSOLUTELY NO navigation links, sidebars, or headers allowing access to other pages. It should be a standalone auth card.
+3. **Visual Aesthetics**: Are colors, spacing (padding/margin), and typography appropriate? Are there proper hover effects, rounded corners, and shadows?
+4. **Realism**: Does the page look like a real production enterprise application? It must avoid looking like a basic HTML template.
+
+If the design is excellent, the tables are perfectly formatted, and no unwanted navigation exists on the login page, output exactly the word "APPROVED".
+Otherwise, provide a concise list of instructions on how to improve the design.
+DO NOT output the corrected HTML, only the critique instructions.
 
 HTML to review:
 {html}

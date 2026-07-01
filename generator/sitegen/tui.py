@@ -119,7 +119,7 @@ def state_from_args(args: argparse.Namespace) -> dict[str, str]:
         "ollama_url": args.ollama_url or "",
         "api_base_url": args.api_base_url or "",
         "api_key": args.api_key or "",
-        "vulnerability": args.vulnerability or "",
+        "vulnerabilities": " ".join(args.vulnerabilities) if getattr(args, "vulnerabilities", None) else "",
     }
 
 
@@ -145,7 +145,7 @@ def apply_state_to_args(args: argparse.Namespace, state: dict[str, str]) -> None
     args.ollama_url = state["ollama_url"] or DEFAULT_BASE_URLS["ollama"]
     args.api_base_url = state["api_base_url"]
     args.api_key = state["api_key"]
-    args.vulnerability = state.get("vulnerability") or None
+    args.vulnerabilities = split_models(state.get("vulnerabilities", ""))
 
 
 def split_models(value: str) -> list[str]:
@@ -179,9 +179,6 @@ class Tui:
         self.contexts = self.load_contexts()
         self.vuln_presets = self.load_vuln_presets()
         self.fields = self.build_fields()
-
-        if not self.state.get("vulnerability") and self.vuln_presets:
-            self.state["vulnerability"] = self.vuln_presets[0]
 
         if not self.state.get("provider"):
             self.state["provider"] = "ollama-local"
@@ -272,8 +269,8 @@ class Tui:
                 help_text="Use ai_company/ai-company for AI vendor-style portals.",
             ),
             Field(
-                "vulnerability", "Vulnerability", "choice", self.vuln_presets,
-                help_text="Preset to enforce. Empty = LLM chooses freely.",
+                "vulnerabilities", "Vulnerabilities", "choice", self.vuln_presets,
+                help_text="Presets to enforce (space-separated). Empty = Random.",
             ),
             Field("country", "Country",
                   help_text="ISO code, e.g. US or DE. Empty lets the LLM choose."),
@@ -487,6 +484,10 @@ def command_preview(state: dict[str, str]) -> list[str]:
         parts.extend(["--api-base-url", state["api_base_url"]])
     if state.get("api_key"):
         parts.extend(["--api-key", "<provided>"])
+
+    if state.get("vulnerabilities"):
+        parts.extend(["--vulnerabilities"])
+        parts.extend(split_models(state["vulnerabilities"]))
 
     command = " ".join(shlex.quote(part) for part in parts)
     return wrap_text(command, 58)

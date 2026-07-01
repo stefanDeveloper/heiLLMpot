@@ -65,6 +65,8 @@ private:
         nlohmann::json ssh_profile;  // SSH profile for paired SSH honeypot
         // routes[path][method] = HTML body
         std::map<std::string, std::map<std::string, std::string>> routes;
+        // routes[path] = auth_required (true/false)
+        std::map<std::string, bool> auth_required;
     };
 
     struct SessionState {
