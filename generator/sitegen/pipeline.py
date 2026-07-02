@@ -22,11 +22,13 @@ from .html_tools import (
     verify_vulnerability_static,
 )
 from .prompts import (
+    API_SPEC_PROMPT,
     APP_SPEC_PROMPT,
     DESIGN_CRITIC_PROMPT,
     HTML_CRITIC_PROMPT,
     HTML_PAGE_PROMPT,
     HTML_REVISION_PROMPT,
+    MFA_PAGE_PROMPT,
     REALISM_QA_PROMPT,
     SECURITY_CRITIC_PROMPT,
     SSH_PROFILE_PROMPT,
@@ -341,7 +343,7 @@ def generate_site(client, coding_model: str, save_path: str,
     combined_vuln_context = "\n".join(vuln_contexts)
 
     # ── Step 1: App specification ─────────────────────────────────────
-    print("  [1/6] Generating app specification...")
+    print("  [1/8] Generating app specification...")
     try:
         spec_prompt = APP_SPEC_PROMPT.format(
             context_name=ctx.context_name,
@@ -374,7 +376,7 @@ def generate_site(client, coding_model: str, save_path: str,
     # ── Step 2: UX Architect agent ────────────────────────────────────
     ux_plan = fallback_ux_plan(app_spec)
     if agent_depth in {"standard", "deep"}:
-        print("  [2/6] UX architect agent planning realism details...")
+        print("  [2/8] UX architect agent planning realism details...")
         try:
             ux_plan = generate_ux_plan(
                 client=client,
@@ -390,10 +392,10 @@ def generate_site(client, coding_model: str, save_path: str,
         except Exception as e:
             print(f"  [warn] UX architect failed, using fallback plan: {e}")
     else:
-        print("  [2/6] UX architect agent skipped (agent_depth=basic)")
+        print("  [2/8] UX architect agent skipped (agent_depth=basic)")
 
     # ── Step 3: HTML pages ────────────────────────────────────────────
-    print("  [3/6] Generating HTML pages...")
+    print("  [3/8] Generating HTML pages...")
     route_responses = generate_route_pages(
         client=client,
         coding_model=coding_model,
@@ -418,8 +420,35 @@ def generate_site(client, coding_model: str, save_path: str,
         )
         return None
 
-    # ── Step 4: SSH profile ───────────────────────────────────────────
-    print("  [4/6] Generating SSH environment profile...")
+    # ── Step 4: API endpoint data ─────────────────────────────────────
+    print("  [4/8] Generating REST API endpoint data...")
+    api_routes_data = generate_api_routes(
+        client=client,
+        coding_model=coding_model,
+        app_spec=app_spec,
+        app_name=app_name,
+        organization=organization,
+        domain=domain,
+        country=app_country or country_hint,
+        language=language,
+        temperature=temperature,
+    )
+
+    # ── Step 5: MFA verification page ─────────────────────────────────
+    print("  [5/8] Generating MFA verification page...")
+    brand_color_line, _ = build_brand_prompt(ctx)
+    mfa_page_html = generate_mfa_page(
+        client=client,
+        coding_model=coding_model,
+        app_name=app_name,
+        organization=organization,
+        country=app_country or country_hint,
+        language=language,
+        brand_color_line=brand_color_line,
+    )
+
+    # ── Step 6: SSH profile ───────────────────────────────────────────
+    print("  [6/8] Generating SSH environment profile...")
     ssh_profile = generate_ssh_profile(
         client=client,
         coding_model=coding_model,
@@ -434,8 +463,8 @@ def generate_site(client, coding_model: str, save_path: str,
 
     tls_country = app_spec.get("country", "") or ctx.tls_country or country or ""
 
-    # ── Step 5: Save — modular folder per site ────────────────────────
-    print("  [5/6] Saving...")
+    # ── Step 7: Save — modular folder per site ────────────────────────
+    print("  [7/8] Saving...")
     org_slug = _org_slug(organization)
     folder_name = f"{org_slug}_{site_id}"
     out_dir = Path(save_path) / folder_name
@@ -488,7 +517,7 @@ def generate_site(client, coding_model: str, save_path: str,
         merged_routes[path] = {
             "methods": info.get("methods", []),
             "description": info.get("description", ""),
-            "auth_required": info.get("auth_required", False),
+            "auth_required": False,
             "page_title": info.get("page_title", ""),
             "responses": route_responses.get(path, {}),
         }
@@ -509,8 +538,16 @@ def generate_site(client, coding_model: str, save_path: str,
     # ux_plan.json (new — from agent depth standard/deep)
     _write_json(out_dir / "ux_plan.json", ux_plan)
 
-    # ── Step 6: Nuclei templates + verification ───────────────────────
-    print("  [6/6] Generating Nuclei templates...")
+    # api_routes.json
+    _write_json(out_dir / "api_routes.json", api_routes_data)
+
+    # mfa_page.html
+    mfa_path = out_dir / "mfa_page.html"
+    with open(mfa_path, "w", encoding="utf-8") as f:
+        f.write(mfa_page_html)
+
+    # ── Step 8: Nuclei templates + verification ───────────────────────
+    print("  [8/8] Generating Nuclei templates...")
     users_list = app_spec.get("users", [])
     try:
         from ..nuclei_utils import generate_nuclei_templates
@@ -1037,3 +1074,162 @@ def generate_ssh_profile(client, coding_model: str, ctx: DeploymentContext,
             "ip_address": "10.0.1.42",
             "dns_servers": ["8.8.8.8", "8.8.4.4"],
         }
+
+
+def generate_api_routes(client, coding_model: str, app_spec: dict,
+                        app_name: str, organization: str, domain: str,
+                        country: str, language: str,
+                        temperature: float) -> dict:
+    """Generate realistic JSON API endpoint response data.
+
+    Returns a dict mapping API route paths to their response definitions,
+    including per-user IDOR data for endpoints that support ID parameters.
+    """
+    api_routes_spec = app_spec.get("api_routes", {})
+    if not api_routes_spec:
+        print("  [warn] No api_routes in app spec, generating defaults")
+        api_routes_spec = {
+            "/api/v1/users": {
+                "methods": ["GET"],
+                "description": "List all users",
+                "auth_required": True,
+                "supports_id_param": False,
+            },
+            "/api/v1/users/{id}": {
+                "methods": ["GET"],
+                "description": "Get user details by ID",
+                "auth_required": True,
+                "supports_id_param": True,
+            },
+        }
+
+    try:
+        prompt = API_SPEC_PROMPT.format(
+            app_name=app_name,
+            organization=organization,
+            domain=domain,
+            country=country,
+            language=language,
+            users_json=json_for_prompt(app_spec.get("users", [])),
+            api_routes_json=json_for_prompt(api_routes_spec),
+        )
+        raw = client.generate(prompt, coding_model, temperature=temperature)
+        api_data = extract_json(raw)
+        route_count = len(api_data) if isinstance(api_data, dict) else 0
+        print(f"  [ok] Generated {route_count} API endpoints")
+        return api_data
+    except Exception as e:
+        print(f"  [warn] API route generation failed: {e}")
+        # Return a minimal fallback
+        users = app_spec.get("users", [])
+        user_list = []
+        user_responses = {}
+        for u in users:
+            uid = u.get("data", {}).get("user_id", len(user_list) + 1)
+            user_list.append({
+                "id": uid,
+                "username": u.get("username", ""),
+                "role": u.get("role", ""),
+                "email": u.get("email", ""),
+            })
+            user_responses[str(uid)] = {
+                "id": uid,
+                "username": u.get("username", ""),
+                "display_name": u.get("display_name", ""),
+                "email": u.get("email", ""),
+                "role": u.get("role", ""),
+            }
+        return {
+            "/api/v1/users": {
+                "methods": ["GET"],
+                "auth_required": True,
+                "content_type": "application/json",
+                "response": {
+                    "status": "success",
+                    "data": user_list,
+                    "pagination": {
+                        "page": 1,
+                        "per_page": 20,
+                        "total": len(user_list),
+                    },
+                },
+            },
+            "/api/v1/users/{id}": {
+                "methods": ["GET"],
+                "auth_required": True,
+                "content_type": "application/json",
+                "idor_enabled": True,
+                "user_responses": user_responses,
+            },
+        }
+
+
+def generate_mfa_page(client, coding_model: str, app_name: str,
+                      organization: str, country: str, language: str,
+                      brand_color_line: str) -> str:
+    """Generate a realistic 2FA/MFA verification page HTML.
+
+    Returns a complete HTML document string.
+    """
+    try:
+        prompt = MFA_PAGE_PROMPT.format(
+            app_name=app_name,
+            organization=organization,
+            country=country,
+            language=language,
+            brand_color_line=brand_color_line,
+        )
+        raw_html = client.generate(prompt, coding_model, temperature=0.2)
+        html = clean_html(raw_html)
+        print(f"  [ok] MFA page generated ({len(html)} bytes)")
+        return html
+    except Exception as e:
+        print(f"  [warn] MFA page generation failed, using fallback: {e}")
+        # Return a minimal but functional fallback MFA page
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Two-Factor Authentication - {app_name}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {{ --primary-color: #003580; --surface-color: #f4f6f9; }}
+    body {{ font-family: 'Inter', sans-serif; background: linear-gradient(135deg, var(--primary-color) 0%, #001a4d 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
+    .mfa-card {{ max-width: 420px; width: 100%; border-radius: 14px; border: 0; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }}
+  </style>
+</head>
+<body>
+  <div class="card mfa-card">
+    <div class="card-body p-4 p-md-5">
+      <div class="text-center mb-4">
+        <h2 class="h4 fw-bold" style="color: var(--primary-color);">{organization}</h2>
+        <p class="text-muted small">Two-Factor Authentication</p>
+      </div>
+      <p class="text-center text-muted small mb-4">A verification code has been sent to your registered device.</p>
+      <form action="/mfa" method="POST" id="mfaForm">
+        <div class="mb-3">
+          <label for="mfa_code" class="form-label fw-medium">Verification Code</label>
+          <input type="text" class="form-control text-center fs-4 letter-spacing-2" id="mfa_code" name="mfa_code" maxlength="6" pattern="[0-9]{{6}}" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" required>
+        </div>
+        <button type="submit" class="btn w-100 py-2 fw-semibold text-white" style="background: var(--primary-color);">Verify</button>
+      </form>
+      <div class="mt-3 text-center">
+        <a href="/mfa" class="small text-decoration-none">Resend code</a>
+        <span class="mx-2 text-muted">|</span>
+        <a href="/mfa" class="small text-decoration-none">Use backup code</a>
+      </div>
+      <p class="text-center text-muted mt-4" style="font-size: 0.7rem;">Authentication requests are logged for security monitoring.</p>
+    </div>
+  </div>
+  <script>
+    document.getElementById('mfaForm').addEventListener('submit', function(e) {{
+      e.preventDefault();
+      fetch('/mfa', {{ method: 'POST', body: new URLSearchParams(new FormData(this)) }})
+        .finally(() => {{ window.location.href = '/dashboard'; }});
+    }});
+  </script>
+</body>
+</html>"""
+

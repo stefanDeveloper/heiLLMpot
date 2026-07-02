@@ -22,6 +22,12 @@ for the specified country/language. Roles: {roles_list}
 3. Each user should have role-specific data (for example, a doctor has patient \
 appointments, a student has enrolled courses)
 4. Routes must include at minimum: /, /login, plus 3-5 app-specific routes
+5. Each user MUST have a sequential integer "user_id" in their "data" object \
+(starting from 1). This is used by the backend for record lookup.
+6. Include 2-4 REST API route paths in the "api_routes" section. These are \
+backend JSON endpoints that a real application would expose (e.g., \
+/api/v1/users, /api/v1/records). At least one endpoint MUST support fetching \
+a single resource by numeric ID (e.g., /api/v1/users/{{id}}).
 
 Output strict JSON with this schema:
 {{
@@ -38,7 +44,7 @@ Output strict JSON with this schema:
       "role": "string",
       "display_name": "string",
       "email": "string",
-      "data": {{}}
+      "data": {{"user_id": 1}}
     }}
   ],
   "routes": {{
@@ -47,6 +53,14 @@ Output strict JSON with this schema:
       "description": "string",
       "auth_required": true,
       "page_title": "string"
+    }}
+  }},
+  "api_routes": {{
+    "/api/v1/resource": {{
+      "methods": ["GET"],
+      "description": "string",
+      "auth_required": true,
+      "supports_id_param": false
     }}
   }}
 }}
@@ -222,7 +236,7 @@ CONTENT & REALISM
     for the country, plausible dates, IDs, and status labels. Never use \
     "Lorem ipsum", "John Doe", "test@example.com", or obvious placeholder text.
 14. For login pages: form action="/login" method="POST", with input fields \
-    named "username" and "password".
+    named "username" and "password". The form MUST include inline JavaScript that intercepts the 'submit' event, calls e.preventDefault(), sends a POST request via fetch() to "/login" with the form data, and then immediately navigates to "/dashboard" via window.location.href (e.g. `.finally(() => {{ window.location.href = '/dashboard'; }})`).
 15. For authenticated pages: show the logged-in user's display name in the \
     topbar with a "Sign Out" link pointing to /login.
 16. All form actions must use relative paths (e.g., action="/login").
@@ -432,4 +446,103 @@ make the vulnerability actually exploitable.
 HTML to review:
 {html}
 """
+
+
+API_SPEC_PROMPT = """\
+You are generating realistic mock REST API response data for a defensive \
+honeypot web application. The API must return believable JSON that an attacker \
+would expect from a real backend.
+
+Application: {app_name}
+Organization: {organization}
+Domain: {domain}
+Country: {country}
+Language: {language}
+
+Users in the system:
+{users_json}
+
+API routes to generate responses for:
+{api_routes_json}
+
+Requirements:
+1. For each API route, generate a complete JSON response body.
+2. For list endpoints (e.g., /api/v1/users): return a paginated response with \
+ALL users from the user list above. Include metadata like "total", "page", \
+"per_page".
+3. For single-resource endpoints with supports_id_param=true (e.g., \
+/api/v1/users/{{id}}): generate a SEPARATE detailed response for EACH user, \
+keyed by their user_id. Include personal details like name, email, phone, \
+role, and 2-3 role-specific data fields. This simulates an IDOR vulnerability \
+where any authenticated user can access any other user's data by changing the ID.
+4. Use realistic field names matching the application type (e.g., "student_id" \
+for university, "patient_id" for hospital).
+5. Include realistic timestamps, status fields, and metadata.
+6. Phone numbers, addresses, and other PII should be realistic but fictional \
+for the specified country.
+7. All text content must be in {language}.
+
+Output strict JSON with this schema:
+{{
+  "/api/v1/resource": {{
+    "methods": ["GET"],
+    "auth_required": true,
+    "content_type": "application/json",
+    "response": {{ ... }}
+  }},
+  "/api/v1/resource/{{id}}": {{
+    "methods": ["GET"],
+    "auth_required": true,
+    "content_type": "application/json",
+    "idor_enabled": true,
+    "user_responses": {{
+      "1": {{ ... }},
+      "2": {{ ... }}
+    }}
+  }}
+}}
+
+Respond ONLY with JSON. No markdown, no explanation.
+"""
+
+
+MFA_PAGE_PROMPT = """\
+You are generating a realistic two-factor authentication (2FA) verification \
+page for a defensive honeypot web application. The page must look \
+indistinguishable from a real enterprise MFA prompt.
+
+Application: {app_name}
+Organization: {organization}
+Country: {country}
+Language: {language}
+{brand_color_line}
+
+Requirements:
+1. Output a COMPLETE, valid HTML5 document (<!DOCTYPE html> through </html>).
+2. Include Bootstrap 5 CDN (CSS + JS) and Google Fonts (Inter or similar).
+3. The page must be a centered card on a clean or gradient background \
+(consistent with the login page style).
+4. The card must contain:
+   - Organization logo/name at top
+   - Heading: "Two-Factor Authentication" or equivalent in {language}
+   - Subtext: "A verification code has been sent to your registered device"
+   - A form with action="/mfa" method="POST" containing:
+     - A 6-digit code input field (name="mfa_code", maxlength=6, \
+       pattern="[0-9]{{6}}", inputmode="numeric", autocomplete="one-time-code")
+     - A "Verify" submit button styled with the brand color
+   - Below the form:
+     - "Didn't receive a code?" with a "Resend code" link (href="/mfa")
+     - "Use a backup code instead" link (href="/mfa")
+   - Footer: small text about security policy
+5. The form MUST include inline JavaScript that intercepts the 'submit' event, \
+calls e.preventDefault(), sends a POST request via fetch() to "/mfa" with \
+the form data, and then navigates to the first authenticated route via \
+window.location.href.
+6. Use CSS variables for brand colors: --primary-color, --surface-color.
+7. Do NOT include any navigation sidebar, top bar, or links to other pages.
+8. All text must be in {language}.
+
+Output ONLY the HTML document. No markdown fences, no explanation.
+"""
+
 

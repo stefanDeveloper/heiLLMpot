@@ -98,3 +98,17 @@ override.tf.json
 *_override.tf.json
 deploy/environments/*/.env
 deploy/environments/*/config.json
+
+# AWS configurations, credentials, and keys
+.aws/
+aws_ssh_key*
+*_ssh_key*
+*ssh_key
+
+# Site deployment bundles and generated JSON files
+*site_bundle.json
+deploy/environments/**/*.json
+!deploy/environments/**/config.json.example
+
+# Private data and cookies
+cookies.txt

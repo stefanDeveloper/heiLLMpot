@@ -144,6 +144,56 @@ void HttpHoneypot::load_sites() {
                     }
                 }
 
+                // Load API routes data
+                {
+                    auto api_path = entry.path() / "api_routes.json";
+                    if (fs::exists(api_path)) {
+                        std::ifstream f(api_path);
+                        f >> site.api_routes;
+                        Logger::instance().log("HTTP", "startup", {
+                            {"message", "Loaded API routes"},
+                            {"count", site.api_routes.size()}
+                        });
+                    }
+                }
+
+                // Load valid user credentials from users.json
+                {
+                    auto users_path = entry.path() / "users.json";
+                    if (fs::exists(users_path)) {
+                        std::ifstream f(users_path);
+                        nlohmann::json users_json;
+                        f >> users_json;
+                        if (users_json.is_array()) {
+                            for (auto& user : users_json) {
+                                if (user.contains("username") && user.contains("password")) {
+                                    site.valid_users[user["username"].get<std::string>()] =
+                                        user["password"].get<std::string>();
+                                }
+                            }
+                        }
+                        Logger::instance().log("HTTP", "startup", {
+                            {"message", "Loaded valid users for auth"},
+                            {"count", site.valid_users.size()}
+                        });
+                    }
+                }
+
+                // Load MFA page HTML
+                {
+                    auto mfa_path = entry.path() / "mfa_page.html";
+                    if (fs::exists(mfa_path)) {
+                        std::ifstream f(mfa_path);
+                        std::ostringstream ss;
+                        ss << f.rdbuf();
+                        site.mfa_page_html = ss.str();
+                        Logger::instance().log("HTTP", "startup", {
+                            {"message", "Loaded MFA page"},
+                            {"bytes", site.mfa_page_html.size()}
+                        });
+                    }
+                }
+
                 sites_.push_back(std::move(site));
 
             } else if (entry.is_regular_file() && entry.path().extension() == ".json") {
@@ -345,12 +395,17 @@ void HttpHoneypot::setup_routes(httplib::Server& server) {
 void HttpHoneypot::handle_request(const httplib::Request& req,
                                    httplib::Response& res,
                                    const std::string& method) {
-    // Add realistic timing jitter
-    add_timing_jitter();
-
     std::string session_id = get_or_create_session(req, res);
 
-    // Apply server fingerprint headers
+    // Add adaptive timing jitter based on request type
+    int login_attempts_count = 0;
+    {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        if (sessions_.count(session_id)) {
+            login_attempts_count = sessions_[session_id].login_attempts;
+        }
+    }
+    add_adaptive_jitter(req.path, method, login_attempts_count);
     apply_fingerprint(res);
 
     SiteData* active_site = get_active_site();
@@ -358,7 +413,6 @@ void HttpHoneypot::handle_request(const httplib::Request& req,
         res.status = 503;
         res.set_content(generate_error_page(503, "Service Temporarily Unavailable"),
                         "text/html; charset=utf-8");
-        // Log with status now known
         Logger::instance().log("HTTP", "request", {
             {"client_ip",   req.remote_addr},
             {"method",      method},
@@ -370,47 +424,21 @@ void HttpHoneypot::handle_request(const httplib::Request& req,
         return;
     }
 
-    // Handle login POST — update session state and log credentials
+    // Route to API handler for /api/* paths
+    if (req.path.substr(0, 5) == "/api/") {
+        handle_api_request(req, res, method, active_site, session_id);
+        return;
+    }
+
+    // Route to MFA handler
+    if (req.path == "/mfa") {
+        handle_mfa_request(req, res, method, active_site, session_id);
+        return;
+    }
+
+    // Handle login POST with credential validation and MFA redirect
     if (req.path == "/login" && method == "POST") {
-        // Parse individual form fields from URL-encoded body
-        std::string login_user, login_pass;
-        auto u_it = req.params.find("username");
-        if (u_it != req.params.end()) login_user = u_it->second;
-        auto p_it = req.params.find("password");
-        if (p_it != req.params.end()) login_pass = p_it->second;
-
-        {
-            std::lock_guard<std::mutex> lock(session_mutex_);
-            if (sessions_.count(session_id)) {
-                sessions_[session_id].authenticated = true;
-                sessions_[session_id].username = login_user;
-            }
-        }
-
-        nlohmann::json login_log = {
-            {"client_ip",  req.remote_addr},
-            {"session_id", session_id},
-            {"site_id",    active_site->site_id},
-            {"username",   login_user},
-            {"password",   login_pass}
-        };
-        // Keep raw body as fallback for non-standard encodings
-        if (!req.body.empty()) {
-            login_log["post_body"] = req.body.substr(0, 512);
-        }
-        Logger::instance().log("HTTP", "login", login_log);
-
-        // Redirect on successful login POST to the first authenticated route
-        std::string redirect_target = "/";
-        for (const auto& [r_path, r_auth] : active_site->auth_required) {
-            if (r_auth) {
-                redirect_target = r_path;
-                break;
-            }
-        }
-        res.status = 302;
-        res.set_header("Location", redirect_target);
-        res.set_content("Redirecting to " + redirect_target + "...", "text/plain");
+        handle_login_post(req, res, active_site, session_id);
         return;
     }
 
@@ -515,6 +543,373 @@ void HttpHoneypot::handle_request(const httplib::Request& req,
         req_log["post_body"] = req.body.substr(0, 512);
     }
     Logger::instance().log("HTTP", "request", req_log);
+}
+
+// ─── API request handler (IDOR simulation) ──────────────────────────────────
+
+void HttpHoneypot::handle_api_request(const httplib::Request& req,
+                                       httplib::Response& res,
+                                       const std::string& method,
+                                       SiteData* site,
+                                       const std::string& session_id) {
+    // Check authentication for API requests
+    bool is_auth = false;
+    {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        if (sessions_.count(session_id)) {
+            is_auth = sessions_[session_id].authenticated;
+        }
+    }
+
+    // Check if this API route requires auth
+    bool route_requires_auth = true;  // default: API routes need auth
+    std::string matched_route;
+    nlohmann::json route_data;
+
+    // Try exact match first
+    if (site->api_routes.contains(req.path)) {
+        matched_route = req.path;
+        route_data = site->api_routes[req.path];
+        if (route_data.contains("auth_required")) {
+            route_requires_auth = route_data["auth_required"].get<bool>();
+        }
+    } else {
+        // Try pattern matching for /api/v1/resource/{id} style routes
+        // Extract the base path and check if a template route exists
+        std::string base_path = req.path;
+        std::string id_value;
+
+        // Find the last segment and check if it's numeric
+        auto last_slash = base_path.rfind('/');
+        if (last_slash != std::string::npos && last_slash < base_path.size() - 1) {
+            std::string last_segment = base_path.substr(last_slash + 1);
+            bool is_numeric = !last_segment.empty() &&
+                std::all_of(last_segment.begin(), last_segment.end(), ::isdigit);
+
+            if (is_numeric) {
+                id_value = last_segment;
+                std::string template_path = base_path.substr(0, last_slash) + "/{id}";
+
+                if (site->api_routes.contains(template_path)) {
+                    matched_route = template_path;
+                    route_data = site->api_routes[template_path];
+                    if (route_data.contains("auth_required")) {
+                        route_requires_auth = route_data["auth_required"].get<bool>();
+                    }
+                }
+            }
+        }
+
+        // If still no match, try broader patterns
+        if (matched_route.empty()) {
+            for (auto& [pattern, data] : site->api_routes.items()) {
+                // Check if the request path starts with the pattern base
+                if (pattern.find("{id}") != std::string::npos) {
+                    std::string pattern_base = pattern.substr(0, pattern.find("{id}"));
+                    if (req.path.substr(0, pattern_base.size()) == pattern_base) {
+                        matched_route = pattern;
+                        route_data = data;
+                        // Extract the ID from the remaining path
+                        id_value = req.path.substr(pattern_base.size());
+                        // Remove trailing slash if present
+                        if (!id_value.empty() && id_value.back() == '/') {
+                            id_value.pop_back();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Handle IDOR: if we matched a template route with an ID
+        if (!matched_route.empty() && !id_value.empty() &&
+            route_data.contains("idor_enabled") &&
+            route_data["idor_enabled"].get<bool>()) {
+
+            if (route_requires_auth && !is_auth) {
+                res.status = 401;
+                nlohmann::json err = {
+                    {"error", "Unauthorized"},
+                    {"message", "Authentication required"},
+                    {"status", 401}
+                };
+                res.set_content(err.dump(2), "application/json");
+            } else if (route_data.contains("user_responses") &&
+                       route_data["user_responses"].contains(id_value)) {
+                res.status = 200;
+                res.set_content(route_data["user_responses"][id_value].dump(2),
+                                "application/json");
+            } else {
+                res.status = 404;
+                nlohmann::json err = {
+                    {"error", "Not Found"},
+                    {"message", "Resource with ID " + id_value + " not found"},
+                    {"status", 404}
+                };
+                res.set_content(err.dump(2), "application/json");
+            }
+
+            Logger::instance().log("HTTP", "api_request", {
+                {"client_ip",    req.remote_addr},
+                {"method",       method},
+                {"path",         req.path},
+                {"matched_route", matched_route},
+                {"id_param",     id_value},
+                {"idor",         true},
+                {"session_id",   session_id},
+                {"site_id",      site->site_id},
+                {"status_code",  res.status},
+                {"authenticated", is_auth}
+            });
+            return;
+        }
+    }
+
+    // No route matched at all
+    if (matched_route.empty()) {
+        res.status = 404;
+        nlohmann::json err = {
+            {"error", "Not Found"},
+            {"message", "The requested endpoint does not exist"},
+            {"status", 404}
+        };
+        res.set_content(err.dump(2), "application/json");
+        Logger::instance().log("HTTP", "api_request", {
+            {"client_ip",   req.remote_addr},
+            {"method",      method},
+            {"path",        req.path},
+            {"session_id",  session_id},
+            {"site_id",     site->site_id},
+            {"status_code", 404}
+        });
+        return;
+    }
+
+    // Auth check for matched route
+    if (route_requires_auth && !is_auth) {
+        res.status = 401;
+        nlohmann::json err = {
+            {"error", "Unauthorized"},
+            {"message", "Authentication required. Please provide a valid session."},
+            {"status", 401}
+        };
+        res.set_content(err.dump(2), "application/json");
+        Logger::instance().log("HTTP", "api_request", {
+            {"client_ip",   req.remote_addr},
+            {"method",      method},
+            {"path",        req.path},
+            {"session_id",  session_id},
+            {"site_id",     site->site_id},
+            {"status_code", 401},
+            {"authenticated", false}
+        });
+        return;
+    }
+
+    // Serve the static response for this API endpoint
+    if (route_data.contains("response")) {
+        res.status = 200;
+        res.set_content(route_data["response"].dump(2), "application/json");
+    } else {
+        res.status = 200;
+        res.set_content(route_data.dump(2), "application/json");
+    }
+
+    Logger::instance().log("HTTP", "api_request", {
+        {"client_ip",    req.remote_addr},
+        {"method",       method},
+        {"path",         req.path},
+        {"matched_route", matched_route},
+        {"session_id",   session_id},
+        {"site_id",      site->site_id},
+        {"status_code",  res.status},
+        {"authenticated", is_auth}
+    });
+}
+
+// ─── Login POST handler (credential validation + MFA redirect) ──────────────
+
+void HttpHoneypot::handle_login_post(const httplib::Request& req,
+                                      httplib::Response& res,
+                                      SiteData* site,
+                                      const std::string& session_id) {
+    // Parse form fields
+    std::string login_user, login_pass;
+    auto u_it = req.params.find("username");
+    if (u_it != req.params.end()) login_user = u_it->second;
+    auto p_it = req.params.find("password");
+    if (p_it != req.params.end()) login_pass = p_it->second;
+
+    // Log the attempt (always log credentials for honeypot intelligence)
+    nlohmann::json login_log = {
+        {"client_ip",  req.remote_addr},
+        {"session_id", session_id},
+        {"site_id",    site->site_id},
+        {"username",   login_user},
+        {"password",   login_pass}
+    };
+    if (!req.body.empty()) {
+        login_log["post_body"] = req.body.substr(0, 512);
+    }
+
+    // Validate credentials against site's user database
+    bool valid_user = site->valid_users.count(login_user) > 0;
+    bool valid_pass = valid_user && site->valid_users[login_user] == login_pass;
+
+    // Increment login attempt counter
+    {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        if (sessions_.count(session_id)) {
+            sessions_[session_id].login_attempts++;
+        }
+    }
+
+    if (valid_pass) {
+        // Correct credentials → redirect to MFA verification
+        login_log["result"] = "valid_credentials_mfa_redirect";
+        Logger::instance().log("HTTP", "login", login_log);
+
+        {
+            std::lock_guard<std::mutex> lock(session_mutex_);
+            if (sessions_.count(session_id)) {
+                sessions_[session_id].username = login_user;
+                sessions_[session_id].mfa_required = true;
+            }
+        }
+
+        // Redirect to MFA page
+        res.status = 302;
+        res.set_header("Location", "/mfa");
+        res.set_content("Redirecting to verification...", "text/plain");
+    } else {
+        // Invalid credentials → serve login page with error message
+        login_log["result"] = valid_user ? "wrong_password" : "unknown_user";
+        Logger::instance().log("HTTP", "login", login_log);
+
+        // Find the login page HTML and inject an error banner
+        std::string login_html;
+        auto route_it = site->routes.find("/login");
+        if (route_it != site->routes.end()) {
+            auto method_it = route_it->second.find("GET");
+            if (method_it == route_it->second.end()) {
+                method_it = route_it->second.begin();
+            }
+            if (method_it != route_it->second.end()) {
+                login_html = method_it->second;
+            }
+        }
+
+        if (login_html.empty()) {
+            login_html = generate_error_page(401, "Authentication Failed");
+        } else {
+            // Inject error alert after <body> or at start of main content
+            std::string error_banner =
+                "<div class=\"alert alert-danger alert-dismissible fade show\" "
+                "role=\"alert\" style=\"position:fixed;top:20px;left:50%;"
+                "transform:translateX(-50%);z-index:9999;max-width:400px;"
+                "box-shadow:0 4px 12px rgba(0,0,0,0.15);\">"
+                "<strong>Authentication Failed.</strong> "
+                "Invalid username or password. Please try again."
+                "<button type=\"button\" class=\"btn-close\" "
+                "data-bs-dismiss=\"alert\"></button></div>";
+
+            auto body_pos = login_html.find("<body");
+            if (body_pos != std::string::npos) {
+                auto body_close = login_html.find(">", body_pos);
+                if (body_close != std::string::npos) {
+                    login_html.insert(body_close + 1, error_banner);
+                }
+            }
+        }
+
+        res.status = 200;
+        res.set_content(login_html, "text/html; charset=utf-8");
+    }
+}
+
+// ─── MFA verification handler ───────────────────────────────────────────────
+
+void HttpHoneypot::handle_mfa_request(const httplib::Request& req,
+                                       httplib::Response& res,
+                                       const std::string& method,
+                                       SiteData* site,
+                                       const std::string& session_id) {
+    // Check if session has MFA pending
+    bool mfa_pending = false;
+    {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        if (sessions_.count(session_id)) {
+            mfa_pending = sessions_[session_id].mfa_required &&
+                          !sessions_[session_id].mfa_completed;
+        }
+    }
+
+    if (!mfa_pending) {
+        // No MFA pending — redirect to login
+        res.status = 302;
+        res.set_header("Location", "/login");
+        res.set_content("Redirecting to login...", "text/plain");
+        return;
+    }
+
+    if (method == "GET") {
+        // Serve the MFA page
+        if (!site->mfa_page_html.empty()) {
+            res.status = 200;
+            res.set_content(site->mfa_page_html, "text/html; charset=utf-8");
+        } else {
+            // Minimal fallback if no MFA page was generated
+            res.status = 200;
+            res.set_content(
+                "<html><body><h1>Verification Required</h1>"
+                "<form action='/mfa' method='POST'>"
+                "<input name='mfa_code' maxlength='6' placeholder='000000'>"
+                "<button type='submit'>Verify</button>"
+                "</form></body></html>",
+                "text/html; charset=utf-8");
+        }
+
+        Logger::instance().log("HTTP", "mfa_page_served", {
+            {"client_ip",  req.remote_addr},
+            {"session_id", session_id},
+            {"site_id",    site->site_id}
+        });
+    } else if (method == "POST") {
+        // Accept ANY MFA code — maximize attacker engagement
+        std::string mfa_code;
+        auto code_it = req.params.find("mfa_code");
+        if (code_it != req.params.end()) mfa_code = code_it->second;
+
+        Logger::instance().log("HTTP", "mfa_attempt", {
+            {"client_ip",  req.remote_addr},
+            {"session_id", session_id},
+            {"site_id",    site->site_id},
+            {"mfa_code",   mfa_code},
+            {"result",     "accepted"}
+        });
+
+        // Mark session as fully authenticated
+        std::string redirect_target = "/";
+        {
+            std::lock_guard<std::mutex> lock(session_mutex_);
+            if (sessions_.count(session_id)) {
+                sessions_[session_id].authenticated = true;
+                sessions_[session_id].mfa_completed = true;
+            }
+        }
+
+        // Find the first authenticated route to redirect to
+        for (const auto& [r_path, r_auth] : site->auth_required) {
+            if (r_auth && r_path != "/login") {
+                redirect_target = r_path;
+                break;
+            }
+        }
+
+        res.status = 302;
+        res.set_header("Location", redirect_target);
+        res.set_content("Redirecting to " + redirect_target + "...", "text/plain");
+    }
 }
 
 // ─── Anti-fingerprinting: apply realistic headers ───────────────────────────

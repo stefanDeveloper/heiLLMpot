@@ -192,7 +192,7 @@ module "honeybot" {
   tags                 = local.extra_tags
   active_site          = local.active_site
 
-  ami_id        = data.aws_ami.ubuntu_arm64.id
+  ami_id        = data.aws_ami.ubuntu.id
   vpc_id        = data.aws_vpc.default.id
   subnet_id     = data.aws_subnets.default.ids[count.index % length(data.aws_subnets.default.ids)]
   instance_type = local.honeybot_instance_type

@@ -79,7 +79,7 @@ runcmd:
         "listen_addr": "0.0.0.0",
         "http_port": 8081,
         "https_port": 8443,
-        "enable_https": false,
+        "enable_https": true,
         "sites_dir": "/app/generated_sites",
         "fingerprint_profile": "apache_2_4",
         "jitter_min_ms": 20,

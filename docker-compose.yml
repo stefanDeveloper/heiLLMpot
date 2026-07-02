@@ -108,9 +108,7 @@ services:
 
   honeybot:
     profiles: ["node"]
-    build:
-      context: ./honeybot
-      dockerfile: Dockerfile
+    image: dockerphil1234/honeybot:latest
     container_name: honeypot_node
     restart: unless-stopped
     depends_on:
