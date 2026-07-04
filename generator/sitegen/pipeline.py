@@ -657,34 +657,35 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
                     path=path,
                     method=method,
                 )
-                html = repair_with_critic(
-                    client=client,
-                    coding_model=coding_model,
-                    reasoning_model=reasoning_model,
-                    html=html,
-                    app_name=app_name,
-                    organization=organization,
-                    method=method,
-                    path=path,
-                    page_description=info.get("description", ""),
-                    language=language,
-                    site_contract=site_contract,
-                    allowed_routes=allowed_routes,
-                )
+                if agent_depth != "basic":
+                    html = repair_with_critic(
+                        client=client,
+                        coding_model=coding_model,
+                        reasoning_model=reasoning_model,
+                        html=html,
+                        app_name=app_name,
+                        organization=organization,
+                        method=method,
+                        path=path,
+                        page_description=info.get("description", ""),
+                        language=language,
+                        site_contract=site_contract,
+                        allowed_routes=allowed_routes,
+                    )
 
-                html = design_critic_pass(
-                    client=client,
-                    coding_model=coding_model,
-                    reasoning_model=reasoning_model,
-                    html=html,
-                    app_name=app_name,
-                    organization=organization,
-                    method=method,
-                    path=path,
-                    page_description=info.get("description", ""),
-                    site_contract=site_contract,
-                    allowed_routes=allowed_routes,
-                )
+                    html = design_critic_pass(
+                        client=client,
+                        coding_model=coding_model,
+                        reasoning_model=reasoning_model,
+                        html=html,
+                        app_name=app_name,
+                        organization=organization,
+                        method=method,
+                        path=path,
+                        page_description=info.get("description", ""),
+                        site_contract=site_contract,
+                        allowed_routes=allowed_routes,
+                    )
 
                 if agent_depth == "deep":
                     html = realism_qa(
@@ -704,22 +705,23 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
                     )
 
                 # Security critic: check all vulnerabilities assigned to this route
-                for v_meta in vuln_metas:
-                    if v_meta.get("target_route") == path:
-                        html = security_critic_pass(
-                            client=client,
-                            coding_model=coding_model,
-                            reasoning_model=reasoning_model,
-                            html=html,
-                            app_name=app_name,
-                            organization=organization,
-                            method=method,
-                            path=path,
-                            page_description=info.get("description", ""),
-                            site_contract=site_contract,
-                            allowed_routes=allowed_routes,
-                            vuln_meta=v_meta,
-                        )
+                if agent_depth != "basic":
+                    for v_meta in vuln_metas:
+                        if v_meta.get("target_route") == path:
+                            html = security_critic_pass(
+                                client=client,
+                                coding_model=coding_model,
+                                reasoning_model=reasoning_model,
+                                html=html,
+                                app_name=app_name,
+                                organization=organization,
+                                method=method,
+                                path=path,
+                                page_description=info.get("description", ""),
+                                site_contract=site_contract,
+                                allowed_routes=allowed_routes,
+                                vuln_meta=v_meta,
+                            )
 
                 html = apply_html_contract(
                     html,

@@ -512,6 +512,7 @@ def generate_nuclei_templates(
     """
     nuclei_dir = output_dir / "nuclei"
     nuclei_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
 
     # ── Vulnerability-specific templates ───────────────────────────────────────
     for vuln in vulnerabilities:

@@ -76,7 +76,10 @@ class OllamaClient:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                     future = executor.submit(_do_stream)
                     try:
-                        return future.result(timeout=self.timeout)
+                        result = future.result(timeout=self.timeout)
+                        if not result or not result.strip():
+                            raise RuntimeError("Ollama returned an empty/whitespace response")
+                        return result
                     except concurrent.futures.TimeoutError:
                         raise TimeoutError(f"Ollama stream read timed out after {self.timeout}s")
             except Exception as e:

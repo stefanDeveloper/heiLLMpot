@@ -118,6 +118,9 @@ def extract_json(text: str) -> dict:
     """Extract JSON from LLM output, including common markdown wrappers."""
     text = remove_think_tags(text)
 
+    if not text or not text.strip():
+        raise ValueError("Empty or whitespace-only response; no JSON to extract")
+
     match = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
     if match:
         text = match.group(1).strip()
@@ -136,7 +139,7 @@ def extract_json(text: str) -> dict:
         text = re.sub(r'("\s*:?\s*"[^"]*")\s*("\s*:)', r'\1,\n\2', text)
         # 2. Trailing commas
         text = re.sub(r",(\s*[}\]])", r"\1", text)
-        
+
         return json.loads(text)
 
 

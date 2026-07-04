@@ -216,6 +216,7 @@ resource "null_resource" "honeybot_status" {
     user        = "ubuntu"
     private_key = tls_private_key.generated[0].private_key_pem
     host        = module.honeybot[count.index].public_ip
+    agent       = false
   }
 
   provisioner "file" {

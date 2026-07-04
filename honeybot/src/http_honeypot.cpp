@@ -774,6 +774,7 @@ void HttpHoneypot::handle_login_post(const httplib::Request& req,
             if (sessions_.count(session_id)) {
                 sessions_[session_id].username = login_user;
                 sessions_[session_id].mfa_required = true;
+                sessions_[session_id].mfa_completed = false;
             }
         }
 
