@@ -57,14 +57,28 @@ class OllamaClient:
         last_error: Optional[Exception] = None
         for attempt in range(self.max_retries):
             try:
-                response = self._client.chat(
-                    model=model,
-                    messages=[{"role": "user", "content": prompt}],
-                    options={"temperature": temperature,
-                             "num_ctx": 16384,
-                             "num_predict": self.max_output_tokens},
-                )
-                return response.message.content
+                import concurrent.futures
+                
+                def _do_stream():
+                    stream = self._client.chat(
+                        model=model,
+                        messages=[{"role": "user", "content": prompt}],
+                        options={"temperature": temperature,
+                                 "num_ctx": 16384,
+                                 "num_predict": self.max_output_tokens},
+                        stream=True,
+                    )
+                    chunks = []
+                    for chunk in stream:
+                        chunks.append(chunk.message.content)
+                    return "".join(chunks)
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(_do_stream)
+                    try:
+                        return future.result(timeout=self.timeout)
+                    except concurrent.futures.TimeoutError:
+                        raise TimeoutError(f"Ollama stream read timed out after {self.timeout}s")
             except Exception as e:
                 last_error = e
                 wait = 2 ** attempt + random.uniform(0, 1)

@@ -935,13 +935,16 @@ void HttpHoneypot::apply_fingerprint(httplib::Response& res) {
 
 // ─── Timing jitter ──────────────────────────────────────────────────────────
 
-void HttpHoneypot::add_timing_jitter() {
+void HttpHoneypot::add_adaptive_jitter(const std::string& path, const std::string& method, int login_attempts) {
     std::uniform_int_distribution<int> dist(config_.jitter_min_ms,
                                              config_.jitter_max_ms);
     int delay;
     {
         std::lock_guard<std::mutex> lock(site_mutex_);  // protect rng_
         delay = dist(rng_);
+    }
+    if (login_attempts > 0) {
+        delay += std::min(login_attempts * 500, 3000);
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(delay));
 }

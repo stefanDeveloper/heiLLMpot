@@ -164,8 +164,8 @@ Examples:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=300,
-        help="HTTP request timeout for provider calls in seconds (default: 300)",
+        default=900,
+        help="HTTP request timeout for provider calls in seconds (default: 900)",
     )
     parser.add_argument(
         "--retries",

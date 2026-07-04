@@ -157,7 +157,7 @@ module "orchestrator" {
   source = "../../modules/orchestrator-aws"
 
   instance_type        = local.orchestrator_instance_type
-  ami_id               = local.orchestrator_ami_id != "" ? local.orchestrator_ami_id : data.aws_ami.ubuntu.id
+  ami_id               = local.orchestrator_ami_id != "" ? local.orchestrator_ami_id : (can(regex("^[a-z]+[0-9]+g\\.", local.orchestrator_instance_type)) ? data.aws_ami.ubuntu_arm64.id : data.aws_ami.ubuntu.id)
   vpc_id               = local.orchestrator_vpc_id != "" ? local.orchestrator_vpc_id : data.aws_vpc.default.id
   subnet_id            = local.orchestrator_subnet_id != null ? local.orchestrator_subnet_id : data.aws_subnets.default.ids[0]
   key_name             = local.effective_key_name
@@ -192,7 +192,7 @@ module "honeybot" {
   tags                 = local.extra_tags
   active_site          = local.active_site
 
-  ami_id        = data.aws_ami.ubuntu.id
+  ami_id        = can(regex("^[a-z]+[0-9]+g\\.", local.honeybot_instance_type)) ? data.aws_ami.ubuntu_arm64.id : data.aws_ami.ubuntu.id
   vpc_id        = data.aws_vpc.default.id
   subnet_id     = data.aws_subnets.default.ids[count.index % length(data.aws_subnets.default.ids)]
   instance_type = local.honeybot_instance_type

@@ -103,6 +103,7 @@ private:
     void apply_fingerprint(httplib::Response& res);
     void add_adaptive_jitter(const std::string& path, const std::string& method,
                              int login_attempts = 0);
+    void add_timing_jitter();
     std::string generate_session_id();
     std::string get_or_create_session(const httplib::Request& req,
                                       httplib::Response& res);
