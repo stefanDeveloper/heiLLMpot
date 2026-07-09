@@ -83,6 +83,7 @@ private:
         bool mfa_required = false;    // true after correct password, awaiting 2FA
         bool mfa_completed = false;   // true after any 2FA code submitted
         int login_attempts = 0;       // track brute-force count per session
+        int mfa_attempts = 0;         // track MFA attempts per session
     };
 
     // ─── Methods ────────────────────────────────────────────────────────

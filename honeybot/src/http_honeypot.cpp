@@ -876,10 +876,56 @@ void HttpHoneypot::handle_mfa_request(const httplib::Request& req,
             {"site_id",    site->site_id}
         });
     } else if (method == "POST") {
-        // Accept ANY MFA code — maximize attacker engagement
         std::string mfa_code;
         auto code_it = req.params.find("mfa_code");
         if (code_it != req.params.end()) mfa_code = code_it->second;
+
+        bool accept_mfa = false;
+        {
+            std::lock_guard<std::mutex> lock(session_mutex_);
+            if (sessions_.count(session_id)) {
+                sessions_[session_id].mfa_attempts++;
+                // Reject the first attempt to mimic real MFA failure behavior
+                if (sessions_[session_id].mfa_attempts >= 2) {
+                    accept_mfa = true;
+                    sessions_[session_id].authenticated = true;
+                    sessions_[session_id].mfa_completed = true;
+                }
+            }
+        }
+
+        if (!accept_mfa) {
+            Logger::instance().log("HTTP", "mfa_attempt", {
+                {"client_ip",  req.remote_addr},
+                {"session_id", session_id},
+                {"site_id",    site->site_id},
+                {"mfa_code",   mfa_code},
+                {"result",     "rejected"}
+            });
+            
+            // Serve the MFA page again with an error message
+            std::string html = site->mfa_page_html;
+            if (html.empty()) {
+                html = "<html><body><h1>Verification Required</h1><p style='color:red;'>Invalid code. Please try again.</p>"
+                       "<form action='/mfa' method='POST'>"
+                       "<input name='mfa_code' maxlength='6' placeholder='000000'>"
+                       "<button type='submit'>Verify</button>"
+                       "</form></body></html>";
+            } else {
+                // Inject an error banner
+                std::string error_banner = "<div style='color:red; text-align:center; padding:10px;'>Invalid code. Please try again.</div>";
+                auto body_pos = html.find("<body");
+                if (body_pos != std::string::npos) {
+                    auto body_close = html.find(">", body_pos);
+                    if (body_close != std::string::npos) {
+                        html.insert(body_close + 1, error_banner);
+                    }
+                }
+            }
+            res.status = 200;
+            res.set_content(html, "text/html; charset=utf-8");
+            return;
+        }
 
         Logger::instance().log("HTTP", "mfa_attempt", {
             {"client_ip",  req.remote_addr},
@@ -889,17 +935,8 @@ void HttpHoneypot::handle_mfa_request(const httplib::Request& req,
             {"result",     "accepted"}
         });
 
-        // Mark session as fully authenticated
-        std::string redirect_target = "/";
-        {
-            std::lock_guard<std::mutex> lock(session_mutex_);
-            if (sessions_.count(session_id)) {
-                sessions_[session_id].authenticated = true;
-                sessions_[session_id].mfa_completed = true;
-            }
-        }
-
         // Find the first authenticated route to redirect to
+        std::string redirect_target = "/";
         for (const auto& [r_path, r_auth] : site->auth_required) {
             if (r_auth && r_path != "/login") {
                 redirect_target = r_path;
@@ -945,7 +982,15 @@ void HttpHoneypot::add_adaptive_jitter(const std::string& path, const std::strin
         delay = dist(rng_);
     }
     if (login_attempts > 0) {
-        delay += std::min(login_attempts * 500, 3000);
+        int base_penalty = std::min(login_attempts * 500, 3000);
+        // Add random noise (+/- 20%) to the penalty to avoid a predictable linear curve
+        std::uniform_int_distribution<int> noise_dist(-base_penalty / 5, base_penalty / 5);
+        int noise;
+        {
+            std::lock_guard<std::mutex> lock(site_mutex_);
+            noise = noise_dist(rng_);
+        }
+        delay += base_penalty + noise;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(delay));
 }
@@ -1022,19 +1067,7 @@ std::string HttpHoneypot::inject_dynamic_content(const std::string& body,
     std::regex localhost_re(R"(http://localhost:\d+)");
     result = std::regex_replace(result, localhost_re, "");
 
-    // Inject a dynamic timestamp comment (makes each response unique)
-    auto now = std::chrono::system_clock::now();
-    auto t = std::chrono::system_clock::to_time_t(now);
-    struct tm tm_buf = gmtime_safe(&t);
-    char timebuf[64];
-    std::strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", &tm_buf);
-
-    size_t body_close = result.rfind("</body>");
-    if (body_close != std::string::npos) {
-        std::string comment = "<!-- generated " + std::string(timebuf) +
-                              " sid:" + session_id.substr(0, 8) + " -->\n";
-        result.insert(body_close, comment);
-    }
+    // Removed honeypot artifact injection for evasion
 
     return result;
 }

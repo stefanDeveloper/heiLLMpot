@@ -15,6 +15,7 @@ COPY CMakeLists.txt .
 COPY include/ include/
 COPY src/ src/
 COPY config/ config/
+COPY third_party/ third_party/
 
 RUN cmake -B build \
     -DCMAKE_BUILD_TYPE=Release \
