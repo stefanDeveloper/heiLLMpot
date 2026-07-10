@@ -70,6 +70,7 @@ void HttpHoneypot::load_sites() {
                     site.site_id = meta.value("site_id", "unknown");
                     site.model   = meta.value("model", "unknown");
                     site.server_profile = meta.value("server_profile", "");
+                    site.mfa_enabled = meta.value("mfa_enabled", true);
 
                     // Build app_spec from metadata fields
                     site.app_spec = nlohmann::json::object();
@@ -382,6 +383,18 @@ void HttpHoneypot::setup_routes(httplib::Server& server) {
         handle_request(req, res, "POST");
     });
 
+    server.Put(".*", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_request(req, res, "PUT");
+    });
+
+    server.Patch(".*", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_request(req, res, "PATCH");
+    });
+
+    server.Delete(".*", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_request(req, res, "DELETE");
+    });
+
     // Also handle OPTIONS for realism
     server.Options(".*", [this](const httplib::Request& req, httplib::Response& res) {
         apply_fingerprint(res);
@@ -685,6 +698,64 @@ void HttpHoneypot::handle_api_request(const httplib::Request& req,
         return;
     }
 
+    // Verify the HTTP method is allowed for this API route
+    bool method_allowed = false;
+    if (route_data.contains("methods") && route_data["methods"].is_array()) {
+        for (const auto& m : route_data["methods"]) {
+            if (m == method) {
+                method_allowed = true;
+                break;
+            }
+        }
+    } else {
+        // Fallback to GET if not specified
+        if (method == "GET") method_allowed = true;
+    }
+
+    if (!method_allowed) {
+        res.status = 405;
+        nlohmann::json err = {
+            {"error", "Method Not Allowed"},
+            {"message", "The method " + method + " is not supported for this endpoint."},
+            {"status", 405}
+        };
+        res.set_content(err.dump(2), "application/json");
+        Logger::instance().log("HTTP", "api_request", {
+            {"client_ip",   req.remote_addr},
+            {"method",      method},
+            {"path",        req.path},
+            {"session_id",  session_id},
+            {"site_id",     site->site_id},
+            {"status_code", 405}
+        });
+        return;
+    }
+
+    // JSON Validation for POST/PUT/PATCH
+    if ((method == "POST" || method == "PUT" || method == "PATCH") && !req.body.empty()) {
+        try {
+            auto parsed_body = nlohmann::json::parse(req.body);
+        } catch (const nlohmann::json::parse_error& e) {
+            res.status = 400;
+            nlohmann::json err = {
+                {"error", "Bad Request"},
+                {"message", "Invalid JSON payload: " + std::string(e.what())},
+                {"status", 400}
+            };
+            res.set_content(err.dump(2), "application/json");
+            Logger::instance().log("HTTP", "api_request", {
+                {"client_ip",   req.remote_addr},
+                {"method",      method},
+                {"path",        req.path},
+                {"session_id",  session_id},
+                {"site_id",     site->site_id},
+                {"status_code", 400},
+                {"reason",      "json_parse_error"}
+            });
+            return;
+        }
+    }
+
     // Auth check for matched route
     if (route_requires_auth && !is_auth) {
         res.status = 401;
@@ -734,11 +805,13 @@ void HttpHoneypot::handle_login_post(const httplib::Request& req,
                                       SiteData* site,
                                       const std::string& session_id) {
     // Parse form fields
-    std::string login_user, login_pass;
+    std::string login_user, login_pass, next_url;
     auto u_it = req.params.find("username");
     if (u_it != req.params.end()) login_user = u_it->second;
     auto p_it = req.params.find("password");
     if (p_it != req.params.end()) login_pass = p_it->second;
+    auto n_it = req.params.find("next");
+    if (n_it != req.params.end()) next_url = n_it->second;
 
     // Log the attempt (always log credentials for honeypot intelligence)
     nlohmann::json login_log = {
@@ -765,23 +838,58 @@ void HttpHoneypot::handle_login_post(const httplib::Request& req,
     }
 
     if (valid_pass) {
-        // Correct credentials → redirect to MFA verification
-        login_log["result"] = "valid_credentials_mfa_redirect";
-        Logger::instance().log("HTTP", "login", login_log);
+        if (site->mfa_enabled) {
+            // Correct credentials → redirect to MFA verification
+            login_log["result"] = "valid_credentials_mfa_redirect";
+            Logger::instance().log("HTTP", "login", login_log);
 
-        {
-            std::lock_guard<std::mutex> lock(session_mutex_);
-            if (sessions_.count(session_id)) {
-                sessions_[session_id].username = login_user;
-                sessions_[session_id].mfa_required = true;
-                sessions_[session_id].mfa_completed = false;
+            {
+                std::lock_guard<std::mutex> lock(session_mutex_);
+                if (sessions_.count(session_id)) {
+                    sessions_[session_id].username = login_user;
+                    sessions_[session_id].mfa_required = true;
+                    sessions_[session_id].mfa_completed = false;
+                    sessions_[session_id].next_url = next_url;
+                }
             }
-        }
 
-        // Redirect to MFA page
-        res.status = 302;
-        res.set_header("Location", "/mfa");
-        res.set_content("Redirecting to verification...", "text/plain");
+            // Redirect to MFA page
+            res.status = 302;
+            res.set_header("Location", "/mfa");
+            res.set_content("Redirecting to verification...", "text/plain");
+        } else {
+            // MFA disabled, redirect straight to the first authenticated route
+            login_log["result"] = "valid_credentials_login_success";
+            Logger::instance().log("HTTP", "login", login_log);
+
+            {
+                std::lock_guard<std::mutex> lock(session_mutex_);
+                if (sessions_.count(session_id)) {
+                    sessions_[session_id].username = login_user;
+                    sessions_[session_id].mfa_required = false;
+                    sessions_[session_id].mfa_completed = false;
+                    sessions_[session_id].authenticated = true;
+                    sessions_[session_id].next_url = next_url;
+                }
+            }
+
+            // Find the first authenticated route to redirect to
+            std::string redirect_target = "/dashboard"; // Fallback to /dashboard
+            if (!next_url.empty()) {
+                redirect_target = next_url;
+            } else {
+                for (const auto& [r_path, r_auth] : site->auth_required) {
+                    if (r_auth && r_path != "/login") {
+                        redirect_target = r_path;
+                        break;
+                    }
+                }
+            }
+
+            res.status = 302;
+            res.set_header("Location", redirect_target);
+            res.set_content("Redirecting to " + redirect_target + "...", "text/plain");
+        }
     } else {
         // Invalid credentials → serve login page with error message
         login_log["result"] = valid_user ? "wrong_password" : "unknown_user";
@@ -936,11 +1044,21 @@ void HttpHoneypot::handle_mfa_request(const httplib::Request& req,
         });
 
         // Find the first authenticated route to redirect to
-        std::string redirect_target = "/";
-        for (const auto& [r_path, r_auth] : site->auth_required) {
-            if (r_auth && r_path != "/login") {
-                redirect_target = r_path;
-                break;
+        std::string redirect_target;
+        {
+            std::lock_guard<std::mutex> lock(session_mutex_);
+            if (sessions_.count(session_id) && !sessions_[session_id].next_url.empty()) {
+                redirect_target = sessions_[session_id].next_url;
+            }
+        }
+        
+        if (redirect_target.empty()) {
+            redirect_target = "/dashboard"; // Fallback to dashboard instead of /
+            for (const auto& [r_path, r_auth] : site->auth_required) {
+                if (r_auth && r_path != "/login") {
+                    redirect_target = r_path;
+                    break;
+                }
             }
         }
 

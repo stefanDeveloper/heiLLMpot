@@ -74,12 +74,14 @@ private:
         std::map<std::string, std::string> valid_users;  // username -> password
         // MFA verification page HTML (from mfa_page.html)
         std::string mfa_page_html;
+        bool mfa_enabled = true;
     };
 
     struct SessionState {
         bool authenticated = false;
         std::string username;
         std::string session_cookie;
+        std::string next_url;         // Store intended redirect target across MFA
         bool mfa_required = false;    // true after correct password, awaiting 2FA
         bool mfa_completed = false;   // true after any 2FA code submitted
         int login_attempts = 0;       // track brute-force count per session
