@@ -100,6 +100,7 @@ private:
                             const std::string& session_id);
     void handle_login_post(const httplib::Request& req, httplib::Response& res,
                            SiteData* site, const std::string& session_id);
+    bool check_sqli_leak(const std::string& input, httplib::Response& res, SiteData* site);
     void handle_mfa_request(const httplib::Request& req, httplib::Response& res,
                             const std::string& method, SiteData* site,
                             const std::string& session_id);

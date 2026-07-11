@@ -1,12 +1,12 @@
 {
   "type": "SQL Injection",
   "description": "Classic error-based or blind SQL injection in a login or search field.",
-  "target_route": "/login or /search",
-  "parameter": "username or query",
-  "exploit_hint": "Use ' OR '1'='1 to bypass login or UNION SELECT to extract data.",
+  "target_route": "/login",
+  "parameter": "username",
+  "exploit_hint": "Use ' OR '1'='1 or UNION SELECT to extract the leaked users.json credentials.",
   "requirements": [
     "The application should not use parameterized queries.",
-    "Database errors should be displayed in the UI if possible for realism.",
-    "At least one user must be bypassable via SQLi."
+    "Database errors must be displayed in the UI and leak the database schema.",
+    "The login page must have an exploit that exposes the usernames and passwords from the database."
   ]
 }

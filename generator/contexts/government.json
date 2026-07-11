@@ -29,5 +29,10 @@
     "SSH-2.0-OpenSSH_9.6p1 Ubuntu-3ubuntu13.5"
   ],
   "tls_country": "",
+  "offerings_label": "Public Services",
+  "personnel_label": "Staff Directory",
+  "personnel_role_filter": ["officer", "clerk", "auditor", "supervisor"],
+  "dashboard_persona": "officer",
+  "dashboard_tabs": ["Case Queue", "Documents", "Audit Log"],
   "notes": "Government and public sector portals with official naming conventions."
 }

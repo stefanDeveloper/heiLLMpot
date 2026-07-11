@@ -813,6 +813,19 @@ void HttpHoneypot::handle_login_post(const httplib::Request& req,
     auto n_it = req.params.find("next");
     if (n_it != req.params.end()) next_url = n_it->second;
 
+    // Check for SQL injection leak
+    if (check_sqli_leak(login_user, res, site)) {
+        // SQL injection handled (response already populated)
+        Logger::instance().log("HTTP", "sqli_detected", {
+            {"client_ip",  req.remote_addr},
+            {"session_id", session_id},
+            {"site_id",    site->site_id},
+            {"payload",    login_user},
+            {"result",     "leaked_credentials"}
+        });
+        return;
+    }
+
     // Log the attempt (always log credentials for honeypot intelligence)
     nlohmann::json login_log = {
         {"client_ip",  req.remote_addr},
@@ -934,6 +947,64 @@ void HttpHoneypot::handle_login_post(const httplib::Request& req,
         res.status = 200;
         res.set_content(login_html, "text/html; charset=utf-8");
     }
+}
+
+// ─── SQL Injection Credential Leak handler ──────────────────────────────────
+
+bool HttpHoneypot::check_sqli_leak(const std::string& input, httplib::Response& res, SiteData* site) {
+    if (input.empty()) return false;
+    
+    // Basic SQL injection patterns
+    std::string lower_input = input;
+    std::transform(lower_input.begin(), lower_input.end(), lower_input.begin(), ::tolower);
+    
+    bool is_sqli = (lower_input.find("' or '1'='1") != std::string::npos ||
+                    lower_input.find("'or'1'='1") != std::string::npos ||
+                    lower_input.find("\" or \"1\"=\"1") != std::string::npos ||
+                    lower_input.find("union select") != std::string::npos ||
+                    lower_input.find("';--") != std::string::npos ||
+                    lower_input.find("' --") != std::string::npos);
+
+    if (!is_sqli) return false;
+
+    // Generate fake database dump leaking valid credentials in a highly realistic raw PHP Exception format
+    // This simulates a sloppy developer throwing an Exception with print_r($results, true) when count($results) > 1
+    std::ostringstream html;
+    
+    // Sanitize input to prevent breaking the HTML too badly, but keep the payload visible
+    std::string safe_input = input;
+    size_t pos;
+    while ((pos = safe_input.find("<")) != std::string::npos) safe_input.replace(pos, 1, "&lt;");
+    while ((pos = safe_input.find(">")) != std::string::npos) safe_input.replace(pos, 1, "&gt;");
+    
+    html << "<br />\n"
+         << "<b>Fatal error</b>:  Uncaught Exception: Authentication failed: multiple records found for username lookup. Result dump: Array\n"
+         << "(\n";
+         
+    int id = 1;
+    for (const auto& [user, pass] : site->valid_users) {
+        html << "    [" << (id - 1) << "] =&gt; Array\n"
+             << "        (\n"
+             << "            [id] =&gt; " << id << "\n"
+             << "            [username] =&gt; " << user << "\n"
+             << "            [password] =&gt; " << pass << "\n"
+             << "            [role] =&gt; " << (user.find("admin") != std::string::npos || user.find("m.") != std::string::npos ? "admin" : "user") << "\n"
+             << "            [status] =&gt; active\n"
+             << "            [last_login] =&gt; " << "2023-11-" << (10 + (id % 15)) << " 08:33:12\n"
+             << "        )\n\n";
+        id++;
+    }
+    
+    html << ")\n"
+         << " in /var/www/html/models/Auth.php:58\n"
+         << "Stack trace:\n"
+         << "#0 /var/www/html/controllers/Login.php(32): AuthModel-&gt;authenticate('" << safe_input << "', '***')\n"
+         << "#1 {main}\n"
+         << "  thrown in <b>/var/www/html/models/Auth.php</b> on line <b>58</b><br />\n";
+
+    res.status = 500;
+    res.set_content(html.str(), "text/html; charset=utf-8");
+    return true;
 }
 
 // ─── MFA verification handler ───────────────────────────────────────────────

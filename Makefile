@@ -24,6 +24,10 @@ up: env certs
 up-node: env certs
 	$(COMPOSE) --profile node up -d --build honeybot
 
+push-honeybot:
+	@echo "Building and pushing honeybot for linux/arm64 to avoid architecture mismatches..."
+	docker buildx build --platform linux/arm64 -t dockerphil1234/honeybot:latest --push ./honeybot
+
 dashboard: env
 	$(COMPOSE) up -d --build dashboard
 

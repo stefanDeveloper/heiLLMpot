@@ -18,7 +18,9 @@ Requirements:
 1. The app MUST feel authentic. Use realistic page titles, form fields, and \
 navigation appropriate for a {context_name}
 2. Create at least 3-5 distinct users with realistic names, emails, and roles \
-for the specified country/language. Roles: {roles_list}
+for the specified country/language. To ensure the generated dashboard is consistent, \
+all non-admin users MUST be of a single cohesive persona appropriate for the \
+{context_name} (e.g., all students, or all employees). Use roles from: {roles_list}
 3. Each user should have role-specific data (for example, a doctor has patient \
 appointments, a student has enrolled courses)
 4. Routes must include at minimum: /, /login, plus 3-5 app-specific routes
@@ -87,8 +89,10 @@ Your job:
 2. Define a professional visual system that is believable for the sector.
 3. For each route, specify realistic modules, tables, forms, empty states,
    admin notices, timestamps, metrics, account details, and microcopy.
-4. Include plausible operational details that make the portal feel alive.
-5. Keep all organizations, domains, logos, and slogans fictional.
+4. CRITICAL: For the public landing page (/ or /home), your plan MUST specify a 2-tab layout: one tab for {offerings_label} and one tab for {personnel_label} (a directory of users).
+5. CRITICAL: For the primary authenticated dashboard, your plan MUST specify a 3-tab layout using these exact tabs: {dashboard_tabs}.
+6. Include plausible operational details that make the portal feel alive.
+7. Keep all organizations, domains, logos, and slogans fictional.
 
 Output strict JSON with this schema:
 {{
@@ -111,6 +115,11 @@ Output strict JSON with this schema:
       "forms_or_tables": ["string"],
       "microcopy": ["string"],
       "state_details": ["string"],
+
+
+
+
+      
       "auth_cues": ["string"]
     }}
   }},
@@ -144,6 +153,9 @@ Site-wide HTML contract:
 {site_contract}
 {previous_page_context}
 
+Users in the system (for personnel directory):
+{users_json}
+
 ═══════════════════════════════════════════════════════════════════════
 CORE REQUIREMENTS
 ═══════════════════════════════════════════════════════════════════════
@@ -158,10 +170,16 @@ MULTI-PAGE NAVIGATION (CRITICAL)
 ═══════════════════════════════════════════════════════════════════════
 
 4. Build a CONTEXTUAL navigation shell based on the provided app routes:
+   - For public pages (like the root landing page / or /home): Create a highly engaging, visually impressive landing page that perfectly matches the {context_name} theme and {organization} context. 
+     CRITICAL: The main content of the landing page MUST be organized into exactly 2 tabs (using Bootstrap nav-tabs or pills):
+       1. '{offerings_label}': A tab showcasing the organization's core offerings.
+       2. '{personnel_label}': A directory tab listing all non-admin users from the system. For each user, you MUST display their display name, role/title, department, and explicitly show their 'Username: [username]' as a visible detail (e.g. Email: user@org, Username: user).
+     Include a prominent "Login" or "Sign In" button/link that points directly to `/login`. Do not include authenticated navigation links.
    - For authenticated pages: Build a fixed left sidebar (250px) with the organization logo/name at top,
      followed by navigation links for EVERY route listed in the app routes.
      Include a sticky top bar with the current page title and user identity/logout.
-   - For public pages (like login): Do NOT include the sidebar, topbar, tab bars, headers, or any navigation
+     CRITICAL: The main content area of the primary dashboard/workspace MUST include a tabbed interface with exactly 3 functional tabs: {dashboard_tabs}. The content must reflect the {dashboard_persona} persona.
+   - For login pages (/login): Do NOT include the sidebar, topbar, tab bars, headers, or any navigation
      links/menus. The login screen must be isolated and only show the credentials card.
 5. EVERY navigation link MUST use a real <a href="/route"> pointing to one \
    of the allowed routes. The current page's link must be visually highlighted \
@@ -235,8 +253,7 @@ CONTENT & REALISM
 13. Use realistic content in {language}: real-looking data, names appropriate \
     for the country, plausible dates, IDs, and status labels. Never use \
     "Lorem ipsum", "John Doe", "test@example.com", or obvious placeholder text.
-14. For login pages: form action="/login" method="POST", with input fields \
-    named "username" and "password". The form MUST include inline JavaScript that intercepts the 'submit' event, calls e.preventDefault(), sends a POST request via fetch() to "/login" with the form data, and then immediately navigates to "/dashboard" via window.location.href (e.g. `.finally(() => {{ window.location.href = '/dashboard'; }})`).
+14. For login pages: You MUST use standard HTML form submission without JavaScript interception. Use <form action="/login" method="POST"> with input fields named "username" and "password". Do NOT include an MFA token field, verification code input, or any multi-factor authentication fields on the login page. The server handles MFA on a separate page. Do NOT use fetch() or e.preventDefault() for the login form. Let the server handle the redirect natively.
 15. For authenticated pages: show the logged-in user's display name in the \
     topbar with a "Sign Out" link pointing to /login.
 16. All form actions must use relative paths (e.g., action="/login").
@@ -266,7 +283,9 @@ Review the following HTML for these critical criteria:
 1. **Multi-page navigation**: Does the page respect the contextual navigation shell specified \
    in the site contract? Are class names consistent (.sidebar, .top-bar, \
    .main-content) for authenticated pages? Is the current route marked active? \
-   CRITICAL: If the route is /login, does it completely HIDE any sidebar, topbar, tab bars, header links, and nav menus?
+   CRITICAL: If the route is /login, does it completely HIDE any sidebar, topbar, tab bars, header links, and nav menus? \
+   CRITICAL: If this is a public landing page (/, /home), does the main content have exactly 2 tabs ('{offerings_label}' and '{personnel_label}')? The personnel tab MUST list users with explicit 'Username: [username]' details. \
+   CRITICAL: If this is the primary authenticated dashboard, does the main content have exactly 3 tabs ({dashboard_tabs})?
 2. **Premium visual quality**: Does the page look like a real production portal? Check for card-based SaaS layouts, proper spacing (not cramped), aligned table columns, formatted statuses, dynamic indicators, rounded elements, and shadows. Ensure it doesn't look like simple, generic HTML.
 3. **Realism**: Is the content realistic? No placeholder text, lorem ipsum, \
    or obviously fake data. Names, dates, IDs, and statuses should be plausible.
@@ -466,15 +485,16 @@ API routes to generate responses for:
 {api_routes_json}
 
 Requirements:
-1. For each API route, generate a complete JSON response body.
+1. For each API route, generate a complete JSON response body. Keep it as compact as possible.
 2. For list endpoints (e.g., /api/v1/users): return a paginated response with \
-ALL users from the user list above. Include metadata like "total", "page", \
+AT MOST 3 users from the user list above. Include metadata like "total", "page", \
 "per_page".
 3. For single-resource endpoints with supports_id_param=true (e.g., \
-/api/v1/users/{{id}}): generate a SEPARATE detailed response for EACH user, \
+/api/v1/users/{{id}}): generate a SEPARATE detailed response for AT MOST 2 users, \
 keyed by their user_id. Include personal details like name, email, phone, \
-role, and 2-3 role-specific data fields. This simulates an IDOR vulnerability \
-where any authenticated user can access any other user's data by changing the ID.
+role, and 1-2 role-specific data fields. This simulates an IDOR vulnerability \
+where any authenticated user can access another user's data by changing the ID. \
+Keep the JSON payload small.
 4. Use realistic field names matching the application type (e.g., "student_id" \
 for university, "patient_id" for hospital).
 5. Include realistic timestamps, status fields, and metadata.
@@ -534,10 +554,9 @@ Requirements:
      - "Didn't receive a code?" with a "Resend code" link (href="/mfa")
      - "Use a backup code instead" link (href="/mfa")
    - Footer: small text about security policy
-5. The form MUST include inline JavaScript that intercepts the 'submit' event, \
-calls e.preventDefault(), sends a POST request via fetch() to "/mfa" with \
-the form data, and then navigates to the first authenticated route via \
-window.location.href.
+5. You MUST use standard HTML form submission without JavaScript interception. \
+Use <form action="/mfa" method="POST">. Do NOT use fetch() or e.preventDefault(). \
+Let the server handle the redirect natively.
 6. Use CSS variables for brand colors: --primary-color, --surface-color.
 7. Do NOT include any navigation sidebar, top bar, or links to other pages.
 8. All text must be in {language}.

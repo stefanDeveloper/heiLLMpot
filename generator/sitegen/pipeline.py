@@ -218,6 +218,9 @@ def generate_ux_plan(client, reasoning_model: str, app_spec: dict,
         context_guidance=context_guidance,
         country=country,
         language=language,
+        offerings_label=ctx.offerings_label,
+        personnel_label=ctx.personnel_label,
+        dashboard_tabs=", ".join(ctx.dashboard_tabs),
     )
     raw_plan = client.generate(prompt, reasoning_model, temperature=temperature)
     return extract_json(raw_plan)
@@ -292,7 +295,8 @@ def generate_site(client, coding_model: str, save_path: str,
                   language: str = "English",
                   temperature: float = 0.3,
                   agent_depth: str = "standard",
-                  vulnerability_presets: Optional[list[str]] = None) -> Optional[str]:
+                  vulnerability_presets: Optional[list[str]] = None,
+                  mfa_enabled: bool = False) -> Optional[str]:
     """Generate a complete honeypot site definition.
 
     Args:
@@ -435,17 +439,21 @@ def generate_site(client, coding_model: str, save_path: str,
     )
 
     # ── Step 5: MFA verification page ─────────────────────────────────
-    print("  [5/8] Generating MFA verification page...")
-    brand_color_line, _ = build_brand_prompt(ctx)
-    mfa_page_html = generate_mfa_page(
-        client=client,
-        coding_model=coding_model,
-        app_name=app_name,
-        organization=organization,
-        country=app_country or country_hint,
-        language=language,
-        brand_color_line=brand_color_line,
-    )
+    if mfa_enabled:
+        print("  [5/8] Generating MFA verification page...")
+        brand_color_line, _ = build_brand_prompt(ctx)
+        mfa_page_html = generate_mfa_page(
+            client=client,
+            coding_model=coding_model,
+            app_name=app_name,
+            organization=organization,
+            country=app_country or country_hint,
+            language=language,
+            brand_color_line=brand_color_line,
+        )
+    else:
+        print("  [5/8] Skipping MFA verification page (MFA disabled)...")
+        mfa_page_html = None
 
     # ── Step 6: SSH profile ───────────────────────────────────────────
     print("  [6/8] Generating SSH environment profile...")
@@ -485,6 +493,7 @@ def generate_site(client, coding_model: str, save_path: str,
         "organization": organization,
         "domain": domain,
         "server_profile": server_profile,
+        "mfa_enabled": mfa_enabled,
     })
 
     # vulnerabilities.json
@@ -542,9 +551,10 @@ def generate_site(client, coding_model: str, save_path: str,
     _write_json(out_dir / "api_routes.json", api_routes_data)
 
     # mfa_page.html
-    mfa_path = out_dir / "mfa_page.html"
-    with open(mfa_path, "w", encoding="utf-8") as f:
-        f.write(mfa_page_html)
+    if mfa_page_html:
+        mfa_path = out_dir / "mfa_page.html"
+        with open(mfa_path, "w", encoding="utf-8") as f:
+            f.write(mfa_page_html)
 
     # ── Step 8: Nuclei templates + verification ───────────────────────
     print("  [8/8] Generating Nuclei templates...")
@@ -647,6 +657,11 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
                 context_name=ctx.context_name,
                 language=language,
                 previous_page_context=previous_page_context,
+                users_json=json_for_prompt(app_spec.get("users", [])),
+                offerings_label=ctx.offerings_label,
+                personnel_label=ctx.personnel_label,
+                dashboard_persona=ctx.dashboard_persona,
+                dashboard_tabs=", ".join(ctx.dashboard_tabs),
             )
 
             try:
@@ -671,6 +686,9 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
                         language=language,
                         site_contract=site_contract,
                         allowed_routes=allowed_routes,
+                        offerings_label=ctx.offerings_label,
+                        personnel_label=ctx.personnel_label,
+                        dashboard_tabs=", ".join(ctx.dashboard_tabs),
                     )
 
                     html = design_critic_pass(
@@ -920,7 +938,8 @@ def design_critic_pass(client, coding_model: str, reasoning_model: str, html: st
 def repair_with_critic(client, coding_model: str, reasoning_model: str, html: str, app_name: str,
                        organization: str, method: str, path: str,
                        page_description: str, language: str,
-                       site_contract: str, allowed_routes: list[str]) -> str:
+                       site_contract: str, allowed_routes: list[str],
+                       offerings_label: str, personnel_label: str, dashboard_tabs: str) -> str:
     valid, issues = validate_html_basic(html)
     if not valid:
         print(f"    [warn] {method} {path}: {', '.join(issues)}; "
@@ -939,6 +958,9 @@ def repair_with_critic(client, coding_model: str, reasoning_model: str, html: st
             site_contract=site_contract,
             language=language,
             html=html,
+            offerings_label=offerings_label,
+            personnel_label=personnel_label,
+            dashboard_tabs=dashboard_tabs,
         )
         critic_feedback = client.generate(
             critic_prompt,
@@ -1126,6 +1148,8 @@ def generate_api_routes(client, coding_model: str, app_spec: dict,
         users = app_spec.get("users", [])
         user_list = []
         user_responses = {}
+        import random
+        from datetime import datetime
         for u in users:
             uid = u.get("data", {}).get("user_id", len(user_list) + 1)
             user_list.append({
@@ -1133,6 +1157,8 @@ def generate_api_routes(client, coding_model: str, app_spec: dict,
                 "username": u.get("username", ""),
                 "role": u.get("role", ""),
                 "email": u.get("email", ""),
+                "status": "active",
+                "last_login": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             })
             user_responses[str(uid)] = {
                 "id": uid,
@@ -1140,6 +1166,12 @@ def generate_api_routes(client, coding_model: str, app_spec: dict,
                 "display_name": u.get("display_name", ""),
                 "email": u.get("email", ""),
                 "role": u.get("role", ""),
+                "status": "active",
+                "department": u.get("data", {}).get("department", "General"),
+                "created_at": "2023-01-15T08:30:00Z",
+                "last_login": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "phone": f"+{random.randint(10000000000, 99999999999)}",
+                "internal_notes": "User account is in good standing.",
             }
         return {
             "/api/v1/users": {
