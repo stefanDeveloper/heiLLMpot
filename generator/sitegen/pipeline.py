@@ -12,6 +12,7 @@ from pathlib import Path
 from time import sleep
 from typing import Optional
 
+from .clients import _generate_with_retry
 from .context import DeploymentContext
 from .html_tools import (
     clean_html,
@@ -222,7 +223,7 @@ def generate_ux_plan(client, reasoning_model: str, app_spec: dict,
         personnel_label=ctx.personnel_label,
         dashboard_tabs=", ".join(ctx.dashboard_tabs),
     )
-    raw_plan = client.generate(prompt, reasoning_model, temperature=temperature)
+    raw_plan = _generate_with_retry(client, prompt, reasoning_model, temperature=temperature, max_retries=client.max_retries)
     return extract_json(raw_plan)
 
 
@@ -360,7 +361,7 @@ def generate_site(client, coding_model: str, save_path: str,
         )
         if combined_vuln_context:
             spec_prompt += f"\n{combined_vuln_context}"
-        raw_spec = client.generate(spec_prompt, coding_model, temperature=temperature)
+        raw_spec = _generate_with_retry(client, spec_prompt, coding_model, temperature=temperature, max_retries=client.max_retries)
         app_spec = extract_json(raw_spec)
     except Exception as e:
         print(f"  [error] Failed to generate app spec: {e}")
@@ -518,7 +519,15 @@ def generate_site(client, coding_model: str, save_path: str,
     _write_json(out_dir / "vulnerabilities.json", output_vulns)
 
     # users.json
-    _write_json(out_dir / "users.json", app_spec.get("users", []))
+    users_list = app_spec.get("users", [])
+    users_list.extend([
+        {"username": "admin", "password": "password", "role": "admin", "display_name": "Administrator", "email": "admin@example.com"},
+        {"username": "admin", "password": "admin", "role": "admin", "display_name": "Administrator", "email": "admin@example.com"},
+        {"username": "root", "password": "root", "role": "admin", "display_name": "Root Admin", "email": "root@example.com"},
+        {"username": "guest", "password": "guest", "role": "user", "display_name": "Guest User", "email": "guest@example.com"},
+        {"username": "test", "password": "test", "role": "user", "display_name": "Test User", "email": "test@example.com"}
+    ])
+    _write_json(out_dir / "users.json", users_list)
 
     # routes.json  (route spec + generated HTML merged)
     merged_routes = {}
@@ -530,6 +539,52 @@ def generate_site(client, coding_model: str, save_path: str,
             "page_title": info.get("page_title", ""),
             "responses": route_responses.get(path, {}),
         }
+        
+    # INJECT WORDPRESS LURE
+    merged_routes["/wp-login.php"] = {
+        "methods": ["GET", "POST"],
+        "description": "WordPress Login",
+        "auth_required": False,
+        "page_title": "WordPress Log In",
+        "responses": {
+            "GET": "<!DOCTYPE html><html><head><title>WordPress &rsaquo; Log In</title></head><body><form name='loginform' id='loginform' action='/wp-login.php' method='post'><p><label for='user_login'>Username</label><br /><input type='text' name='log' id='user_login' class='input' value='' size='20' /></p><p><label for='user_pass'>Password</label><br /><input type='password' name='pwd' id='user_pass' class='input' value='' size='20' /></p><p><input type='submit' name='wp-submit' id='wp-submit' class='button button-primary button-large' value='Log In' /></p></form></body></html>",
+            "POST": "<!DOCTYPE html><html><head><title>WordPress &rsaquo; Error</title></head><body><div id='login_error'><strong>ERROR</strong>: The password you entered for the username is incorrect.</div></body></html>"
+        }
+    }
+
+    # INJECT ENTERPRISE LURES
+    merged_routes["/phpmyadmin/"] = {
+        "methods": ["GET", "POST"],
+        "description": "phpMyAdmin Login",
+        "auth_required": False,
+        "page_title": "phpMyAdmin",
+        "responses": {
+            "GET": "<!DOCTYPE html><html><head><title>phpMyAdmin</title></head><body><form method='post' action='index.php'><label>Username: <input type='text' name='pma_username'></label><br><label>Password: <input type='password' name='pma_password'></label><br><input type='submit' value='Go'></form></body></html>",
+            "POST": "<!DOCTYPE html><html><head><title>phpMyAdmin</title></head><body>Access denied for user.</body></html>"
+        }
+    }
+    
+    merged_routes["/manager/html"] = {
+        "methods": ["GET"],
+        "description": "Tomcat Manager",
+        "auth_required": False,
+        "page_title": "Tomcat Web Application Manager",
+        "responses": {
+            "GET": "<html><head><title>401 Unauthorized</title></head><body><h1>401 Unauthorized</h1><p>You are not authorized to view this page.</p></body></html>"
+        }
+    }
+    
+    merged_routes["/owa/auth/logon.aspx"] = {
+        "methods": ["GET", "POST"],
+        "description": "Outlook Web Access",
+        "auth_required": False,
+        "page_title": "Outlook",
+        "responses": {
+            "GET": "<html><head><title>Outlook</title></head><body><form action='/owa/auth.owa' method='POST'><input type='text' name='username'><input type='password' name='password'><input type='submit' value='Sign In'></form></body></html>",
+            "POST": "<html><head><title>Outlook</title></head><body>The username or password you entered isn't correct. Try entering it again.</body></html>"
+        }
+    }
+        
     _write_json(out_dir / "routes.json", merged_routes)
 
     # ssh_profile.json
@@ -548,6 +603,15 @@ def generate_site(client, coding_model: str, save_path: str,
     _write_json(out_dir / "ux_plan.json", ux_plan)
 
     # api_routes.json
+    # INJECT IDOR VULNERABLE API
+    api_routes_data["/api/v1/users/{id}"] = {
+        "auth_required": False,
+        "idor_enabled": True,
+        "user_responses": {
+            "1": {"id": 1, "username": "admin", "role": "admin"},
+            "2": {"id": 2, "username": "guest", "role": "user"}
+        }
+    }
     _write_json(out_dir / "api_routes.json", api_routes_data)
 
     # mfa_page.html
@@ -665,7 +729,7 @@ def generate_route_pages(client, coding_model: str, reasoning_model: str, ctx: D
             )
 
             try:
-                html = clean_html(client.generate(prompt, coding_model, temperature=0.2))
+                html = clean_html(_generate_with_retry(client, prompt, coding_model, temperature=0.2, max_retries=client.max_retries))
                 html = apply_html_contract(
                     html,
                     allowed_routes=allowed_routes,
@@ -823,7 +887,7 @@ def security_critic_pass(client, coding_model: str, reasoning_model: str, html: 
     is_ok, reason = verify_vulnerability_static(html, vuln_type, parameter)
     if not is_ok:
         print(f"    [sec] {method} {path}: static check failed — {reason}. Forcing revision.")
-        html = clean_html(client.generate(
+        html = clean_html(_generate_with_retry(client,
             HTML_REVISION_PROMPT.format(
                 app_name=app_name,
                 organization=organization,
@@ -836,12 +900,13 @@ def security_critic_pass(client, coding_model: str, reasoning_model: str, html: 
             ),
             coding_model,
             temperature=0.2,
+            max_retries=client.max_retries,
         ))
         html = apply_html_contract(html, allowed_routes, path, method)
 
     # 2. LLM security critic
     print(f"    [sec] {method} {path}: security critic")
-    sec_feedback = client.generate(
+    sec_feedback = _generate_with_retry(client,
         SECURITY_CRITIC_PROMPT.format(
             app_name=app_name,
             vuln_type=vuln_type,
@@ -852,6 +917,7 @@ def security_critic_pass(client, coding_model: str, reasoning_model: str, html: 
         ),
         reasoning_model,
         temperature=0.2,
+        max_retries=client.max_retries,
     ).strip()
 
     if "SECURELY_VULNERABLE" in sec_feedback.upper():
@@ -859,7 +925,7 @@ def security_critic_pass(client, coding_model: str, reasoning_model: str, html: 
         return html
 
     print(f"    [sec] {method} {path}: security critic requested revision")
-    revised = clean_html(client.generate(
+    revised = clean_html(_generate_with_retry(client,
         HTML_REVISION_PROMPT.format(
             app_name=app_name,
             organization=organization,
@@ -872,6 +938,7 @@ def security_critic_pass(client, coding_model: str, reasoning_model: str, html: 
         ),
         coding_model,
         temperature=0.2,
+        max_retries=client.max_retries,
     ))
     revised = apply_html_contract(revised, allowed_routes, path, method)
     valid_rev, _ = validate_html_basic(revised)
@@ -895,10 +962,11 @@ def design_critic_pass(client, coding_model: str, reasoning_model: str, html: st
         site_contract=site_contract,
         html=html,
     )
-    critic_feedback = client.generate(
+    critic_feedback = _generate_with_retry(client,
         critic_prompt,
         reasoning_model,
         temperature=0.2,
+        max_retries=client.max_retries,
     ).strip()
 
     if "APPROVED" in critic_feedback.upper():
@@ -906,7 +974,7 @@ def design_critic_pass(client, coding_model: str, reasoning_model: str, html: st
         return html
 
     print(f"    [agent] {method} {path}: design critic requested revision")
-    revised = clean_html(client.generate(
+    revised = clean_html(_generate_with_retry(client,
         HTML_REVISION_PROMPT.format(
             app_name=app_name,
             organization=organization,
@@ -919,6 +987,7 @@ def design_critic_pass(client, coding_model: str, reasoning_model: str, html: st
         ),
         coding_model,
         temperature=0.2,
+        max_retries=client.max_retries,
     ))
     revised = apply_html_contract(
         revised,
@@ -962,10 +1031,11 @@ def repair_with_critic(client, coding_model: str, reasoning_model: str, html: st
             personnel_label=personnel_label,
             dashboard_tabs=dashboard_tabs,
         )
-        critic_feedback = client.generate(
+        critic_feedback = _generate_with_retry(client,
             critic_prompt,
             reasoning_model,
             temperature=0.2,
+            max_retries=client.max_retries,
         ).strip()
     else:
         print(f"    [agent] {method} {path}: critic forced revision")
@@ -980,7 +1050,7 @@ def repair_with_critic(client, coding_model: str, reasoning_model: str, html: st
         return html
 
     print(f"    [agent] {method} {path}: critic requested revision")
-    revised = clean_html(client.generate(
+    revised = clean_html(_generate_with_retry(client,
         HTML_REVISION_PROMPT.format(
             app_name=app_name,
             organization=organization,
@@ -993,6 +1063,7 @@ def repair_with_critic(client, coding_model: str, reasoning_model: str, html: st
         ),
         coding_model,
         temperature=0.2,
+        max_retries=client.max_retries,
     ))
     revised = apply_html_contract(
         revised,
@@ -1033,13 +1104,13 @@ def realism_qa(client, coding_model: str, reasoning_model: str, html: str, app_n
         route_plan=route_plan,
         html=html,
     )
-    qa_feedback = client.generate(qa_prompt, reasoning_model, temperature=0.2).strip()
+    qa_feedback = _generate_with_retry(client, qa_prompt, reasoning_model, temperature=0.2, max_retries=client.max_retries).strip()
     if "APPROVED" in qa_feedback.upper():
         print(f"    [agent] {method} {path}: realism QA approved")
         return html
 
     print(f"    [agent] {method} {path}: realism QA requested revision")
-    revised = clean_html(client.generate(
+    revised = clean_html(_generate_with_retry(client,
         HTML_REVISION_PROMPT.format(
             app_name=app_name,
             organization=organization,
@@ -1052,6 +1123,7 @@ def realism_qa(client, coding_model: str, reasoning_model: str, html: str, app_n
         ),
         coding_model,
         temperature=0.2,
+        max_retries=client.max_retries,
     ))
     revised = apply_html_contract(
         revised,
@@ -1081,7 +1153,7 @@ def generate_ssh_profile(client, coding_model: str, ctx: DeploymentContext,
             country=country,
             os_options=os_options_str,
         )
-        raw_ssh = client.generate(ssh_prompt, coding_model, temperature=temperature)
+        raw_ssh = _generate_with_retry(client, ssh_prompt, coding_model, temperature=temperature, max_retries=client.max_retries)
         return extract_json(raw_ssh)
     except Exception as e:
         print(f"  [warn] SSH profile generation failed: {e}")
@@ -1137,7 +1209,7 @@ def generate_api_routes(client, coding_model: str, app_spec: dict,
             users_json=json_for_prompt(app_spec.get("users", [])),
             api_routes_json=json_for_prompt(api_routes_spec),
         )
-        raw = client.generate(prompt, coding_model, temperature=temperature)
+        raw = _generate_with_retry(client, prompt, coding_model, temperature=temperature, max_retries=client.max_retries)
         api_data = extract_json(raw)
         route_count = len(api_data) if isinstance(api_data, dict) else 0
         print(f"  [ok] Generated {route_count} API endpoints")
@@ -1213,7 +1285,7 @@ def generate_mfa_page(client, coding_model: str, app_name: str,
             language=language,
             brand_color_line=brand_color_line,
         )
-        raw_html = client.generate(prompt, coding_model, temperature=0.2)
+        raw_html = _generate_with_retry(client, prompt, coding_model, temperature=0.2, max_retries=client.max_retries)
         html = clean_html(raw_html)
         print(f"  [ok] MFA page generated ({len(html)} bytes)")
         return html

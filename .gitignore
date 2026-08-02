@@ -116,3 +116,4 @@ cookies.txt
 # Massive binaries and deployment artifacts
 honeybot.tar
 deploy/honeypot_patched
+backups/

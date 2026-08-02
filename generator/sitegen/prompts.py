@@ -171,6 +171,7 @@ MULTI-PAGE NAVIGATION (CRITICAL)
 
 4. Build a CONTEXTUAL navigation shell based on the provided app routes:
    - For public pages (like the root landing page / or /home): Create a highly engaging, visually impressive landing page that perfectly matches the {context_name} theme and {organization} context. 
+     CRITICAL: The landing page is PUBLIC and marketing-focused. It MUST NOT contain any confidential backend information, system statuses, or recent operational activity logs.
      CRITICAL: The main content of the landing page MUST be organized into exactly 2 tabs (using Bootstrap nav-tabs or pills):
        1. '{offerings_label}': A tab showcasing the organization's core offerings.
        2. '{personnel_label}': A directory tab listing all non-admin users from the system. For each user, you MUST display their display name, role/title, department, and explicitly show their 'Username: [username]' as a visible detail (e.g. Email: user@org, Username: user).
@@ -253,7 +254,7 @@ CONTENT & REALISM
 13. Use realistic content in {language}: real-looking data, names appropriate \
     for the country, plausible dates, IDs, and status labels. Never use \
     "Lorem ipsum", "John Doe", "test@example.com", or obvious placeholder text.
-14. For login pages: You MUST use standard HTML form submission without JavaScript interception. Use <form action="/login" method="POST"> with input fields named "username" and "password". Do NOT include an MFA token field, verification code input, or any multi-factor authentication fields on the login page. The server handles MFA on a separate page. Do NOT use fetch() or e.preventDefault() for the login form. Let the server handle the redirect natively.
+14. For login pages: You MUST use standard HTML form submission without JavaScript interception. Use <form action="/login" method="POST"> with input fields named "username" and "password". Do NOT include an MFA token field, verification code input, or any multi-factor authentication fields on the login page. The server handles MFA on a separate page. Do NOT use fetch() or e.preventDefault() for the login form. Let the server handle the redirect natively. CRITICAL: If you include a hidden "next" or redirect input, its value MUST point to an authenticated route (like "/dashboard") and NEVER to the public landing page ("/").
 15. For authenticated pages: show the logged-in user's display name in the \
     topbar with a "Sign Out" link pointing to /login.
 16. All form actions must use relative paths (e.g., action="/login").

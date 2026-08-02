@@ -57,31 +57,22 @@ class OllamaClient:
         last_error: Optional[Exception] = None
         for attempt in range(self.max_retries):
             try:
-                import concurrent.futures
-                
-                def _do_stream():
-                    stream = self._client.chat(
-                        model=model,
-                        messages=[{"role": "user", "content": prompt}],
-                        options={"temperature": temperature,
-                                 "num_ctx": 16384,
-                                 "num_predict": self.max_output_tokens},
-                        stream=True,
-                    )
-                    chunks = []
-                    for chunk in stream:
-                        chunks.append(chunk.message.content)
-                    return "".join(chunks)
-
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(_do_stream)
-                    try:
-                        result = future.result(timeout=self.timeout)
-                        if not result or not result.strip():
-                            raise RuntimeError("Ollama returned an empty/whitespace response")
-                        return result
-                    except concurrent.futures.TimeoutError:
-                        raise TimeoutError(f"Ollama stream read timed out after {self.timeout}s")
+                response = self._client.chat(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    options={"temperature": temperature,
+                             "num_ctx": 16384,
+                             "num_predict": self.max_output_tokens},
+                    stream=False,
+                )
+                result = response.message.content or ""
+                # Some models (e.g. kimi-k2.7-code:cloud) return the actual
+                # output in the `thinking` field when content is empty.
+                if not result.strip() and getattr(response.message, "thinking", None):
+                    result = response.message.thinking
+                if not result or not result.strip():
+                    raise RuntimeError("Ollama returned an empty/whitespace response")
+                return result
             except Exception as e:
                 last_error = e
                 wait = 2 ** attempt + random.uniform(0, 1)
@@ -124,6 +115,7 @@ class HostedLLMClient:
         return []
 
     def _post_json(self, url: str, payload: dict, headers: dict) -> dict:
+        """POST JSON with retries on connection/timeout and retryable HTTP errors."""
         last_error: Optional[Exception] = None
         for attempt in range(self.max_retries):
             try:
@@ -137,16 +129,43 @@ class HostedLLMClient:
                 return res.json()
             except (requests.ConnectionError, requests.Timeout) as e:
                 last_error = e
+            except requests.HTTPError as e:
+                status = e.response.status_code if e.response else 0
+                # Retry transient 5xx / rate-limit / gateway timeouts.
+                # 524 (Cloudflare origin timeout) is explicitly retryable.
+                if status in (429, 502, 503, 504, 524):
+                    last_error = e
+                else:
+                    raise
+            if last_error is not None:
                 wait = 2 ** attempt + random.uniform(0, 1)
                 print(f"    [retry {attempt + 1}/{self.max_retries}] "
-                      f"Connection error: {e}. Retrying in {wait:.1f}s...")
+                      f"Transient error: {last_error}. Retrying in {wait:.1f}s...")
                 time.sleep(wait)
-            except requests.HTTPError:
-                raise
         raise RuntimeError(
             f"{self.provider} request failed after "
             f"{self.max_retries} retries: {last_error}"
         )
+
+
+def _generate_with_retry(client, prompt: str, model: str, temperature: float, max_retries: int):
+    """Wrap a single LLM generation with empty-response retry logic."""
+    last_error: Optional[Exception] = None
+    for attempt in range(max_retries):
+        try:
+            result = client.generate(prompt, model, temperature=temperature)
+            if not result or not result.strip():
+                raise RuntimeError("LLM returned an empty/whitespace response")
+            return result
+        except Exception as e:
+            last_error = e
+            wait = 2 ** attempt + random.uniform(0, 1)
+            print(f"    [retry {attempt + 1}/{max_retries}] "
+                  f"Generation error: {e}. Retrying in {wait:.1f}s...")
+            time.sleep(wait)
+    raise RuntimeError(
+        f"LLM generation failed after {max_retries} retries: {last_error}"
+    )
 
 
 class OpenAIClient(HostedLLMClient):
@@ -300,7 +319,7 @@ DEFAULT_BASE_URLS = {
 }
 
 DEFAULT_MODELS = {
-    "ollama": "llama3.2:3b",
+    "ollama": "kimi-k2.7-code:cloud",
     "openai": "gpt-5-mini",
     "anthropic": "claude-sonnet-4-5",
     "google": "gemini-2.5-flash",

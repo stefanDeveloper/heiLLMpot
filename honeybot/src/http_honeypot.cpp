@@ -889,7 +889,7 @@ void HttpHoneypot::handle_login_post(const httplib::Request& req,
             // Find the first authenticated route to redirect to
             std::string redirect_target = "/dashboard"; // Fallback to /dashboard
             if (!next_url.empty()) {
-                redirect_target = next_url;
+                redirect_target = (next_url == "/") ? "/dashboard" : next_url;
             } else {
                 for (const auto& [r_path, r_auth] : site->auth_required) {
                     if (r_auth && r_path != "/login") {
