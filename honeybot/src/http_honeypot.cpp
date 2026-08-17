@@ -813,6 +813,24 @@ void HttpHoneypot::handle_login_post(const httplib::Request& req,
     auto n_it = req.params.find("next");
     if (n_it != req.params.end()) next_url = n_it->second;
 
+    // Fallback: Check if credentials were submitted as JSON (common for automated scripts/bots)
+    if (login_user.empty() && login_pass.empty() && !req.body.empty()) {
+        auto content_type = req.get_header_value("Content-Type");
+        if (content_type.find("application/json") != std::string::npos) {
+            try {
+                auto body_json = nlohmann::json::parse(req.body);
+                if (body_json.contains("username") && body_json["username"].is_string()) {
+                    login_user = body_json["username"].get<std::string>();
+                }
+                if (body_json.contains("password") && body_json["password"].is_string()) {
+                    login_pass = body_json["password"].get<std::string>();
+                }
+            } catch (...) {
+                // Ignore JSON parse errors
+            }
+        }
+    }
+
     // Check for SQL injection leak
     if (check_sqli_leak(login_user, res, site)) {
         // SQL injection handled (response already populated)
