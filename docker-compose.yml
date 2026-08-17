@@ -28,6 +28,8 @@ services:
     build:
       context: ./orchestrator
       dockerfile: Dockerfile
+      args:
+        - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     logging: *default-logging
     container_name: honeypot_orchestrator
     restart: unless-stopped
@@ -118,6 +120,11 @@ services:
 
   honeybot:
     profiles: ["node"]
+    build:
+      context: ./honeybot
+      dockerfile: Dockerfile
+      args:
+        - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     image: dockerphil1234/honeybot:latest
     logging: *default-logging
     container_name: honeypot_node

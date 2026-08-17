@@ -17,7 +17,12 @@ COPY src/ src/
 COPY config/ config/
 COPY third_party/ third_party/
 
-RUN cmake -B build \
+ARG GITHUB_TOKEN
+ENV GITHUB_TOKEN=${GITHUB_TOKEN}
+RUN mkdir -p /opt/vcpkg/downloads && \
+    curl -sL -H "Authorization: token ${GITHUB_TOKEN}" -o /opt/vcpkg/downloads/Thalhammer-jwt-cpp-v0.7.2.tar.gz https://github.com/Thalhammer/jwt-cpp/archive/v0.7.2.tar.gz && \
+    curl -sL -H "Authorization: token ${GITHUB_TOKEN}" -o /opt/vcpkg/downloads/openssl-openssl-openssl-3.6.3.tar.gz https://github.com/openssl/openssl/archive/openssl-3.6.3.tar.gz && \
+    cmake -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake \
     && cmake --build build --parallel $(nproc)
