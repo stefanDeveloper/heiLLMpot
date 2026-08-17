@@ -443,6 +443,53 @@ void HttpHoneypot::handle_request(const httplib::Request& req,
         return;
     }
 
+    // Global Credential Interceptor: catch bots throwing passwords at ANY endpoint (e.g. wp-login.php)
+    if (method == "POST" && req.path != "/login") {
+        std::string sn_user, sn_pass;
+        for (const char* p : {"username", "user", "log", "pma_username", "email", "login"}) {
+            if (req.params.count(p)) { sn_user = req.params.find(p)->second; break; }
+        }
+        for (const char* p : {"password", "pass", "pwd", "pma_password"}) {
+            if (req.params.count(p)) { sn_pass = req.params.find(p)->second; break; }
+        }
+        
+        // Also check JSON body if not found in forms
+        if (sn_user.empty() && sn_pass.empty() && !req.body.empty() && req.get_header_value("Content-Type").find("application/json") != std::string::npos) {
+            try {
+                auto j = nlohmann::json::parse(req.body);
+                for (const char* p : {"username", "user", "email"}) {
+                    if (j.contains(p) && j[p].is_string()) { sn_user = j[p].get<std::string>(); break; }
+                }
+                for (const char* p : {"password", "pass"}) {
+                    if (j.contains(p) && j[p].is_string()) { sn_pass = j[p].get<std::string>(); break; }
+                }
+            } catch (...) {}
+        }
+
+        if (!sn_user.empty() || !sn_pass.empty()) {
+            bool valid = (active_site->valid_users.count(sn_user) && active_site->valid_users[sn_user] == sn_pass);
+            nlohmann::json log_evt = {
+                {"client_ip", req.remote_addr},
+                {"session_id", session_id},
+                {"site_id", active_site->site_id},
+                {"username", sn_user},
+                {"password", sn_pass},
+                {"path", req.path},
+                {"result", valid ? "valid_credentials_bypass" : "invalid_credentials"}
+            };
+            if (!req.body.empty()) log_evt["post_body"] = req.body.substr(0, 512);
+            Logger::instance().log("HTTP", "login", log_evt);
+
+            if (valid) {
+                std::lock_guard<std::mutex> lock(session_mutex_);
+                if (sessions_.count(session_id)) {
+                    sessions_[session_id].username = sn_user;
+                    sessions_[session_id].authenticated = true;
+                }
+            }
+        }
+    }
+
     // Route to MFA handler
     if (req.path == "/mfa") {
         handle_mfa_request(req, res, method, active_site, session_id);
