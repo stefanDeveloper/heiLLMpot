@@ -5,6 +5,7 @@
 #include "oatpp/core/macro/component.hpp"
 #include "oatpp/web/server/api/ApiController.hpp"
 #include "oatpp/parser/json/mapping/ObjectMapper.hpp"
+#include "../worker/EventQueueWorker.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -14,13 +15,20 @@
 
 class EventController : public oatpp::web::server::api::ApiController {
 public:
-    EventController(OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper))
-        : ApiController(objectMapper) {}
+    EventController(OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
+                    OATPP_COMPONENT(std::shared_ptr<EventQueueWorker>, eventQueue))
+        : ApiController(objectMapper), m_eventQueue(eventQueue) {}
 
     static std::shared_ptr<EventController> createShared(
-            OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper)) {
-        return std::make_shared<EventController>(objectMapper);
+            OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
+            OATPP_COMPONENT(std::shared_ptr<EventQueueWorker>, eventQueue)) {
+        return std::make_shared<EventController>(objectMapper, eventQueue);
     }
+
+private:
+    std::shared_ptr<EventQueueWorker> m_eventQueue;
+
+public:
 
     // ── POST /api/v1/events ──────────────────────────────────────────────────
 
@@ -82,19 +90,28 @@ public:
             }
 
             std::string rawJson = ev->raw_json ? ev->raw_json->c_str() : "{}";
-            db->insertEvent(uuid, nid, proto, etype, ts, rawJson);
 
             if (etype == "credential" || etype == "login") {
+                db->insertEvent(uuid, nid, proto, etype, ts, rawJson);
                 std::string user = ev->username ? ev->username->c_str() : "";
                 std::string pass = ev->password ? ev->password->c_str() : "";
-                db->insertCredential(uuid, nid, proto, user, pass, ts, false);
-            }
-            if (etype == "request" && proto == "http") {
-                std::string method = ev->method      ? ev->method->c_str()     : "";
-                std::string path   = ev->path        ? ev->path->c_str()       : "";
-                int         sc     = ev->status_code ? *ev->status_code        : 0;
-                std::string ua     = ev->user_agent  ? ev->user_agent->c_str() : "";
-                db->insertHttpRequest(uuid, nid, method, path, sc, ua, ts);
+                bool success = (rawJson.find("\"valid_credentials") != std::string::npos);
+                db->insertCredential(uuid, nid, proto, user, pass, ts, success);
+            } else if (etype == "request" && proto == "http") {
+                ScanEventData s_data;
+                s_data.session_uuid = uuid;
+                s_data.node_id = nid;
+                s_data.protocol = proto;
+                s_data.event_type = etype;
+                s_data.occurred_at = ts;
+                s_data.raw_json = rawJson;
+                s_data.method = ev->method ? ev->method->c_str() : "";
+                s_data.path = ev->path ? ev->path->c_str() : "";
+                s_data.status_code = ev->status_code ? *ev->status_code : 0;
+                s_data.user_agent = ev->user_agent ? ev->user_agent->c_str() : "";
+                m_eventQueue->enqueue(s_data);
+            } else {
+                db->insertEvent(uuid, nid, proto, etype, ts, rawJson);
             }
             ++ingested;
         }

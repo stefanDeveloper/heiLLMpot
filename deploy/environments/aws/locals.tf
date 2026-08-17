@@ -23,5 +23,9 @@ locals {
   orchestrator_subnet_id     = lookup(local.config, "orchestrator_subnet_id", null)
   git_repo                   = lookup(local.config, "git_repo", "https://github.com/stefanDeveloper/heiLLMpot.git")
   git_branch                 = lookup(local.config, "git_branch", "main")
+
+  external_ca_cert_path      = lookup(local.config, "external_ca_cert_path", "")
+  external_client_crt_path   = lookup(local.config, "external_client_crt_path", "")
+  external_client_key_path   = lookup(local.config, "external_client_key_path", "")
 }
 

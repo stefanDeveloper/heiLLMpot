@@ -79,6 +79,15 @@ PGresult* DbClient::execParams(const char* sql, int nParams,
     return res;
 }
 
+void DbClient::pruneOldSessions(int retentionDays) {
+    if (retentionDays <= 0) return;
+    ensureConnected();
+    std::string sql = "DELETE FROM sessions WHERE started_at < NOW() - INTERVAL '" + std::to_string(retentionDays) + " days'";
+    PGresult* res = PQexec(m_conn, sql.c_str());
+    checkResult(res, "pruneOldSessions");
+    PQclear(res);
+}
+
 // ─── GeoIP ───────────────────────────────────────────────────────────────────
 
 GeoInfo DbClient::geoLookup(const std::string& ip) {
@@ -388,6 +397,45 @@ void DbClient::insertHttpRequest(const std::string& session_uuid,
     PQclear(res);
 }
 
+void DbClient::insertEventsBatch(const std::vector<ScanEventData>& events) {
+    if (events.empty()) return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ensureConnected();
+    PGresult* res = PQexec(m_conn, "BEGIN");
+    PQclear(res);
+    try {
+        for (const auto& ev : events) {
+            const char* e_params[] = {
+                ev.session_uuid.c_str(), ev.node_id.c_str(), ev.protocol.c_str(),
+                ev.event_type.c_str(), ev.occurred_at.c_str(), ev.raw_json.c_str()
+            };
+            res = PQexecParams(m_conn, 
+                "INSERT INTO events(session_id,node_id,protocol,event_type,occurred_at,raw) "
+                "VALUES($1::uuid,$2,$3,$4,COALESCE(NULLIF($5,'')::timestamptz, NOW()),$6::jsonb) "
+                "ON CONFLICT DO NOTHING", 6, nullptr, e_params, nullptr, nullptr, 0);
+            if (PQresultStatus(res) != PGRES_COMMAND_OK) throw std::runtime_error("insert event failed");
+            PQclear(res);
+
+            std::string port_str = std::to_string(ev.status_code);
+            const char* h_params[] = {
+                ev.session_uuid.c_str(), ev.node_id.c_str(), ev.method.c_str(),
+                ev.path.c_str(), port_str.c_str(), ev.user_agent.c_str(), ev.occurred_at.c_str()
+            };
+            res = PQexecParams(m_conn,
+                "INSERT INTO http_requests(session_id,node_id,method,path,status_code,user_agent,occurred_at) "
+                "VALUES($1::uuid,$2,$3,$4,$5::int,$6,COALESCE(NULLIF($7,'')::timestamptz, NOW()))",
+                7, nullptr, h_params, nullptr, nullptr, 0);
+            if (PQresultStatus(res) != PGRES_COMMAND_OK) throw std::runtime_error("insert http_request failed");
+            PQclear(res);
+        }
+        res = PQexec(m_conn, "COMMIT");
+        PQclear(res);
+    } catch (...) {
+        res = PQexec(m_conn, "ROLLBACK");
+        PQclear(res);
+    }
+}
+
 // ─── Classification ───────────────────────────────────────────────────────────
 
 void DbClient::upsertClassification(const std::string& session_uuid,
@@ -533,4 +581,66 @@ void DbClient::runMigration(const std::string& sql_file_path) {
     auto* res = PQexec(m_conn, sql.c_str());
     checkResult(res, "runMigration");
     PQclear(res);
+}
+
+// ─── Size-based Pruning ───────────────────────────────────────────────────────
+
+void DbClient::pruneBySize(int max_db_size_gb) {
+    if (max_db_size_gb <= 0) return;
+    
+    std::lock_guard<std::mutex> lock(m_mutex);
+    ensureConnected();
+
+    // 1. Get database size in bytes
+    const char* size_sql = "SELECT pg_database_size(current_database());";
+    auto* res = PQexec(m_conn, size_sql);
+    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+        std::cerr << "[DbClient] Failed to check database size: " << PQerrorMessage(m_conn) << "\n";
+        PQclear(res);
+        return;
+    }
+    
+    long long db_size_bytes = std::stoll(PQgetvalue(res, 0, 0));
+    PQclear(res);
+
+    long long max_size_bytes = static_cast<long long>(max_db_size_gb) * 1024 * 1024 * 1024;
+    
+    if (db_size_bytes > max_size_bytes) {
+        std::cout << "[DbClient] DB Size (" << db_size_bytes << " bytes) exceeds max size (" 
+                  << max_size_bytes << " bytes). Pruning non-critical scan events...\n";
+
+        // Delete scan events from sessions that do NOT have a credential or an attack/malicious label.
+        // We delete from `events` and `http_requests` to free up space.
+        // We delete in batches (e.g., sessions older than X, or just oldest sessions).
+        const char* prune_sql = R"(
+            WITH sessions_to_prune AS (
+                SELECT session_uuid FROM sessions s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM credentials c WHERE c.session_uuid = s.session_uuid
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM session_classifications cl 
+                    WHERE cl.session_uuid = s.session_uuid 
+                      AND (cl.label = 'malicious_login' OR cl.label = 'attack')
+                )
+                ORDER BY s.started_at ASC
+                LIMIT 10000
+            ),
+            deleted_events AS (
+                DELETE FROM events 
+                WHERE session_uuid IN (SELECT session_uuid FROM sessions_to_prune)
+                RETURNING session_uuid
+            )
+            DELETE FROM http_requests 
+            WHERE session_uuid IN (SELECT session_uuid FROM sessions_to_prune);
+        )";
+        
+        auto* prune_res = PQexec(m_conn, prune_sql);
+        if (PQresultStatus(prune_res) != PGRES_COMMAND_OK) {
+            std::cerr << "[DbClient] Pruning failed: " << PQerrorMessage(m_conn) << "\n";
+        } else {
+            std::cout << "[DbClient] Successfully pruned oldest non-critical events.\n";
+        }
+        PQclear(prune_res);
+    }
 }

@@ -38,6 +38,7 @@ add_executable(orchestrator
     src/auth/NodeAuthInterceptor.cpp
     src/db/DbClient.cpp
     src/worker/ClassificationWorker.cpp
+    src/worker/EventQueueWorker.cpp
 )
 
 target_include_directories(orchestrator PRIVATE

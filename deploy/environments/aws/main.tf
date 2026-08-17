@@ -202,9 +202,9 @@ module "honeybot" {
   git_repo             = local.git_repo
   git_branch           = local.git_branch
 
-  ssl_ca_cert    = tls_self_signed_cert.ca.cert_pem
-  ssl_client_crt = tls_locally_signed_cert.honeybot_cert[count.index].cert_pem
-  ssl_client_key = tls_private_key.honeybot_cert[count.index].private_key_pem
+  ssl_ca_cert    = local.deploy_orchestrator ? tls_self_signed_cert.ca.cert_pem : (local.external_ca_cert_path != "" ? try(file(local.external_ca_cert_path), "") : "")
+  ssl_client_crt = local.deploy_orchestrator ? tls_locally_signed_cert.honeybot_cert[count.index].cert_pem : (local.external_client_crt_path != "" ? try(file(local.external_client_crt_path), "") : "")
+  ssl_client_key = local.deploy_orchestrator ? tls_private_key.honeybot_cert[count.index].private_key_pem : (local.external_client_key_path != "" ? try(file(local.external_client_key_path), "") : "")
 }
 
 resource "null_resource" "honeybot_status" {

@@ -1,14 +1,13 @@
 # Honeybot Docker Image
 
-To build and push the Docker image to GitHub Container Registry (GHCR):
+To build and push the Docker image to Docker Hub (or your preferred registry):
 
 ```bash
-export CR_PAT="YOUR_GITHUB_PERSONAL_ACCESS_TOKEN"
-echo $CR_PAT | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+docker login -u YOUR_DOCKERHUB_USERNAME
 
-docker build -t ghcr.io/YOUR_GITHUB_USERNAME/heillmpot-honeybot:latest ./honeybot
+docker build -t dockerphil1234/honeybot:latest ./honeybot
 
-docker push ghcr.io/YOUR_GITHUB_USERNAME/heillmpot-honeybot:latest
+docker push dockerphil1234/honeybot:latest
 ```
 
-**Note:** Ensure your Docker Desktop is running before executing these commands and remember that GitHub Container Registry requires your username to be all lowercase!
+**Note:** The default Terraform deployment uses `dockerphil1234/honeybot:latest` out of the box. This public pre-built image is provided as the default to simplify deployment, because the original GHCR image requires a GitHub token for access. Ensure your Docker Desktop is running before executing these commands!
