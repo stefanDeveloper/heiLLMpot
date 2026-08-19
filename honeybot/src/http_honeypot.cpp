@@ -903,27 +903,22 @@ void HttpHoneypot::handle_login_post(const httplib::Request& req,
             if (sessions_.count(session_id)) {
                 sessions_[session_id].username = login_user;
                 sessions_[session_id].authenticated = true;
-                sessions_[session_id].next_url = next_url;
-            }
-        }
-
-            // Find the first authenticated route to redirect to
-            std::string redirect_target = "/dashboard"; // Fallback to /dashboard
-            if (!next_url.empty()) {
-                redirect_target = (next_url == "/") ? "/dashboard" : next_url;
-            } else {
-                for (const auto& [r_path, r_auth] : site->auth_required) {
-                    if (r_auth && r_path != "/login") {
-                        redirect_target = r_path;
-                        break;
-                    }
+        // Find the first authenticated route to redirect to
+        std::string redirect_target = "/dashboard"; // Fallback to /dashboard
+        if (!next_url.empty()) {
+            redirect_target = (next_url == "/") ? "/dashboard" : next_url;
+        } else {
+            for (const auto& [r_path, r_auth] : site->auth_required) {
+                if (r_auth && r_path != "/login") {
+                    redirect_target = r_path;
+                    break;
                 }
             }
-
-            res.status = 302;
-            res.set_header("Location", redirect_target);
-            res.set_content("Redirecting to " + redirect_target + "...", "text/plain");
         }
+
+        res.status = 302;
+        res.set_header("Location", redirect_target);
+        res.set_content("Redirecting to " + redirect_target + "...", "text/plain");
     } else {
         // Invalid credentials → serve login page with error message
         login_log["result"] = valid_user ? "wrong_password" : "unknown_user";
@@ -1028,28 +1023,6 @@ bool HttpHoneypot::check_sqli_leak(const std::string& input, httplib::Response& 
     return true;
 }
 
-        std::string redirect_target;
-        {
-            std::lock_guard<std::mutex> lock(session_mutex_);
-            if (sessions_.count(session_id) && !sessions_[session_id].next_url.empty()) {
-                redirect_target = sessions_[session_id].next_url;
-            }
-        }
-        
-        if (redirect_target.empty()) {
-            redirect_target = "/dashboard"; // Fallback to dashboard instead of /
-            for (const auto& [r_path, r_auth] : site->auth_required) {
-                if (r_auth && r_path != "/login") {
-                    redirect_target = r_path;
-                    break;
-                }
-            }
-        }
-
-        res.status = 302;
-        res.set_header("Location", redirect_target);
-        res.set_content("Redirecting to " + redirect_target + "...", "text/plain");
-    }
 }
 
 // ─── Anti-fingerprinting: apply realistic headers ───────────────────────────
