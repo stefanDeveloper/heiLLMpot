@@ -524,33 +524,6 @@ Output strict JSON with this schema:
 }}
 
 Respond ONLY with JSON. No markdown, no explanation.
-{brand_color_line}
-
-Requirements:
-1. Output a COMPLETE, valid HTML5 document (<!DOCTYPE html> through </html>).
-2. Include Bootstrap 5 CDN (CSS + JS) and Google Fonts (Inter or similar).
-3. The page must be a centered card on a clean or gradient background \
-(consistent with the login page style).
-4. The card must contain:
-   - Organization logo/name at top
-   - Heading: "Two-Factor Authentication" or equivalent in {language}
-   - Subtext: "A verification code has been sent to your registered device"
-   - A form with action="/mfa" method="POST" containing:
-     - A 6-digit code input field (name="mfa_code", maxlength=6, \
-       pattern="[0-9]{{6}}", inputmode="numeric", autocomplete="one-time-code")
-     - A "Verify" submit button styled with the brand color
-   - Below the form:
-     - "Didn't receive a code?" with a "Resend code" link (href="/mfa")
-     - "Use a backup code instead" link (href="/mfa")
-   - Footer: small text about security policy
-5. You MUST use standard HTML form submission without JavaScript interception. \
-Use <form action="/mfa" method="POST">. Do NOT use fetch() or e.preventDefault(). \
-Let the server handle the redirect natively.
-6. Use CSS variables for brand colors: --primary-color, --surface-color.
-7. Do NOT include any navigation sidebar, top bar, or links to other pages.
-8. All text must be in {language}.
-
-Output ONLY the HTML document. No markdown fences, no explanation.
 """
 
 

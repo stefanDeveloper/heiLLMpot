@@ -903,6 +903,9 @@ void HttpHoneypot::handle_login_post(const httplib::Request& req,
             if (sessions_.count(session_id)) {
                 sessions_[session_id].username = login_user;
                 sessions_[session_id].authenticated = true;
+            }
+        }
+
         // Find the first authenticated route to redirect to
         std::string redirect_target = "/dashboard"; // Fallback to /dashboard
         if (!next_url.empty()) {
