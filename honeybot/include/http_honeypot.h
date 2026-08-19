@@ -79,6 +79,7 @@ private:
         bool authenticated = false;
         std::string username;
         std::string session_cookie;
+        std::string next_url;
         int login_attempts = 0;       // track brute-force count per session
     };
 

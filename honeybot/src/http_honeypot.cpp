@@ -1026,7 +1026,6 @@ bool HttpHoneypot::check_sqli_leak(const std::string& input, httplib::Response& 
     return true;
 }
 
-}
 
 // ─── Anti-fingerprinting: apply realistic headers ───────────────────────────
 
