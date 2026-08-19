@@ -131,13 +131,6 @@ Examples:
             "generator/vulnerabilities/. Omit to pick randomly."
         ),
     )
-    parser.add_argument(
-        "--mfa",
-        dest="mfa_enabled",
-        action="store_true",
-        default=False,
-        help="Enable MFA verification page generation (MFA is disabled by default)",
-    )
 
     endpoint_group = parser.add_mutually_exclusive_group()
     endpoint_group.add_argument(
@@ -281,7 +274,6 @@ def main() -> None:
                 temperature=args.temperature,
                 agent_depth=args.agent_depth,
                 vulnerability_presets=args.vulnerabilities,
-                mfa_enabled=args.mfa_enabled,
             )
             if result:
                 generated += 1

@@ -524,18 +524,6 @@ Output strict JSON with this schema:
 }}
 
 Respond ONLY with JSON. No markdown, no explanation.
-"""
-
-
-MFA_PAGE_PROMPT = """\
-You are generating a realistic two-factor authentication (2FA) verification \
-page for a defensive honeypot web application. The page must look \
-indistinguishable from a real enterprise MFA prompt.
-
-Application: {app_name}
-Organization: {organization}
-Country: {country}
-Language: {language}
 {brand_color_line}
 
 Requirements:

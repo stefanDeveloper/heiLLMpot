@@ -70,7 +70,6 @@ void HttpHoneypot::load_sites() {
                     site.site_id = meta.value("site_id", "unknown");
                     site.model   = meta.value("model", "unknown");
                     site.server_profile = meta.value("server_profile", "");
-                    site.mfa_enabled = meta.value("mfa_enabled", true);
 
                     // Build app_spec from metadata fields
                     site.app_spec = nlohmann::json::object();
@@ -176,21 +175,6 @@ void HttpHoneypot::load_sites() {
                         Logger::instance().log("HTTP", "startup", {
                             {"message", "Loaded valid users for auth"},
                             {"count", site.valid_users.size()}
-                        });
-                    }
-                }
-
-                // Load MFA page HTML
-                {
-                    auto mfa_path = entry.path() / "mfa_page.html";
-                    if (fs::exists(mfa_path)) {
-                        std::ifstream f(mfa_path);
-                        std::ostringstream ss;
-                        ss << f.rdbuf();
-                        site.mfa_page_html = ss.str();
-                        Logger::instance().log("HTTP", "startup", {
-                            {"message", "Loaded MFA page"},
-                            {"bytes", site.mfa_page_html.size()}
                         });
                     }
                 }
@@ -488,12 +472,6 @@ void HttpHoneypot::handle_request(const httplib::Request& req,
                 }
             }
         }
-    }
-
-    // Route to MFA handler
-    if (req.path == "/mfa") {
-        handle_mfa_request(req, res, method, active_site, session_id);
-        return;
     }
 
     // Handle login POST with credential validation and MFA redirect
@@ -916,40 +894,18 @@ void HttpHoneypot::handle_login_post(const httplib::Request& req,
     }
 
     if (valid_pass) {
-        if (site->mfa_enabled) {
-            // Correct credentials → redirect to MFA verification
-            login_log["result"] = "valid_credentials_mfa_redirect";
-            Logger::instance().log("HTTP", "login", login_log);
+        // Redirect straight to the first authenticated route
+        login_log["result"] = "valid_credentials_login_success";
+        Logger::instance().log("HTTP", "login", login_log);
 
-            {
-                std::lock_guard<std::mutex> lock(session_mutex_);
-                if (sessions_.count(session_id)) {
-                    sessions_[session_id].username = login_user;
-                    sessions_[session_id].mfa_required = true;
-                    sessions_[session_id].mfa_completed = false;
-                    sessions_[session_id].next_url = next_url;
-                }
+        {
+            std::lock_guard<std::mutex> lock(session_mutex_);
+            if (sessions_.count(session_id)) {
+                sessions_[session_id].username = login_user;
+                sessions_[session_id].authenticated = true;
+                sessions_[session_id].next_url = next_url;
             }
-
-            // Redirect to MFA page
-            res.status = 302;
-            res.set_header("Location", "/mfa");
-            res.set_content("Redirecting to verification...", "text/plain");
-        } else {
-            // MFA disabled, redirect straight to the first authenticated route
-            login_log["result"] = "valid_credentials_login_success";
-            Logger::instance().log("HTTP", "login", login_log);
-
-            {
-                std::lock_guard<std::mutex> lock(session_mutex_);
-                if (sessions_.count(session_id)) {
-                    sessions_[session_id].username = login_user;
-                    sessions_[session_id].mfa_required = false;
-                    sessions_[session_id].mfa_completed = false;
-                    sessions_[session_id].authenticated = true;
-                    sessions_[session_id].next_url = next_url;
-                }
-            }
+        }
 
             // Find the first authenticated route to redirect to
             std::string redirect_target = "/dashboard"; // Fallback to /dashboard
@@ -1072,114 +1028,6 @@ bool HttpHoneypot::check_sqli_leak(const std::string& input, httplib::Response& 
     return true;
 }
 
-// ─── MFA verification handler ───────────────────────────────────────────────
-
-void HttpHoneypot::handle_mfa_request(const httplib::Request& req,
-                                       httplib::Response& res,
-                                       const std::string& method,
-                                       SiteData* site,
-                                       const std::string& session_id) {
-    // Check if session has MFA pending
-    bool mfa_pending = false;
-    {
-        std::lock_guard<std::mutex> lock(session_mutex_);
-        if (sessions_.count(session_id)) {
-            mfa_pending = sessions_[session_id].mfa_required &&
-                          !sessions_[session_id].mfa_completed;
-        }
-    }
-
-    if (!mfa_pending) {
-        // No MFA pending — redirect to login
-        res.status = 302;
-        res.set_header("Location", "/login");
-        res.set_content("Redirecting to login...", "text/plain");
-        return;
-    }
-
-    if (method == "GET") {
-        // Serve the MFA page
-        if (!site->mfa_page_html.empty()) {
-            res.status = 200;
-            res.set_content(site->mfa_page_html, "text/html; charset=utf-8");
-        } else {
-            // Minimal fallback if no MFA page was generated
-            res.status = 200;
-            res.set_content(
-                "<html><body><h1>Verification Required</h1>"
-                "<form action='/mfa' method='POST'>"
-                "<input name='mfa_code' maxlength='6' placeholder='000000'>"
-                "<button type='submit'>Verify</button>"
-                "</form></body></html>",
-                "text/html; charset=utf-8");
-        }
-
-        Logger::instance().log("HTTP", "mfa_page_served", {
-            {"client_ip",  req.remote_addr},
-            {"session_id", session_id},
-            {"site_id",    site->site_id}
-        });
-    } else if (method == "POST") {
-        std::string mfa_code;
-        auto code_it = req.params.find("mfa_code");
-        if (code_it != req.params.end()) mfa_code = code_it->second;
-
-        bool accept_mfa = false;
-        {
-            std::lock_guard<std::mutex> lock(session_mutex_);
-            if (sessions_.count(session_id)) {
-                sessions_[session_id].mfa_attempts++;
-                // Reject the first attempt to mimic real MFA failure behavior
-                if (sessions_[session_id].mfa_attempts >= 2) {
-                    accept_mfa = true;
-                    sessions_[session_id].authenticated = true;
-                    sessions_[session_id].mfa_completed = true;
-                }
-            }
-        }
-
-        if (!accept_mfa) {
-            Logger::instance().log("HTTP", "mfa_attempt", {
-                {"client_ip",  req.remote_addr},
-                {"session_id", session_id},
-                {"site_id",    site->site_id},
-                {"mfa_code",   mfa_code},
-                {"result",     "rejected"}
-            });
-            
-            // Serve the MFA page again with an error message
-            std::string html = site->mfa_page_html;
-            if (html.empty()) {
-                html = "<html><body><h1>Verification Required</h1><p style='color:red;'>Invalid code. Please try again.</p>"
-                       "<form action='/mfa' method='POST'>"
-                       "<input name='mfa_code' maxlength='6' placeholder='000000'>"
-                       "<button type='submit'>Verify</button>"
-                       "</form></body></html>";
-            } else {
-                // Inject an error banner
-                std::string error_banner = "<div style='color:red; text-align:center; padding:10px;'>Invalid code. Please try again.</div>";
-                auto body_pos = html.find("<body");
-                if (body_pos != std::string::npos) {
-                    auto body_close = html.find(">", body_pos);
-                    if (body_close != std::string::npos) {
-                        html.insert(body_close + 1, error_banner);
-                    }
-                }
-            }
-            res.status = 200;
-            res.set_content(html, "text/html; charset=utf-8");
-            return;
-        }
-
-        Logger::instance().log("HTTP", "mfa_attempt", {
-            {"client_ip",  req.remote_addr},
-            {"session_id", session_id},
-            {"site_id",    site->site_id},
-            {"mfa_code",   mfa_code},
-            {"result",     "accepted"}
-        });
-
-        // Find the first authenticated route to redirect to
         std::string redirect_target;
         {
             std::lock_guard<std::mutex> lock(session_mutex_);

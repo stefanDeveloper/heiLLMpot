@@ -29,7 +29,6 @@ from .prompts import (
     HTML_CRITIC_PROMPT,
     HTML_PAGE_PROMPT,
     HTML_REVISION_PROMPT,
-    MFA_PAGE_PROMPT,
     REALISM_QA_PROMPT,
     SECURITY_CRITIC_PROMPT,
     SSH_PROFILE_PROMPT,
@@ -296,8 +295,7 @@ def generate_site(client, coding_model: str, save_path: str,
                   language: str = "English",
                   temperature: float = 0.3,
                   agent_depth: str = "standard",
-                  vulnerability_presets: Optional[list[str]] = None,
-                  mfa_enabled: bool = False) -> Optional[str]:
+                  vulnerability_presets: Optional[list[str]] = None) -> Optional[str]:
     """Generate a complete honeypot site definition.
 
     Args:
@@ -439,25 +437,8 @@ def generate_site(client, coding_model: str, save_path: str,
         temperature=temperature,
     )
 
-    # ── Step 5: MFA verification page ─────────────────────────────────
-    if mfa_enabled:
-        print("  [5/8] Generating MFA verification page...")
-        brand_color_line, _ = build_brand_prompt(ctx)
-        mfa_page_html = generate_mfa_page(
-            client=client,
-            coding_model=coding_model,
-            app_name=app_name,
-            organization=organization,
-            country=app_country or country_hint,
-            language=language,
-            brand_color_line=brand_color_line,
-        )
-    else:
-        print("  [5/8] Skipping MFA verification page (MFA disabled)...")
-        mfa_page_html = None
-
-    # ── Step 6: SSH profile ───────────────────────────────────────────
-    print("  [6/8] Generating SSH environment profile...")
+    # ── Step 5: SSH profile ───────────────────────────────────────────
+    print("  [5/6] Generating SSH environment profile...")
     ssh_profile = generate_ssh_profile(
         client=client,
         coding_model=coding_model,
@@ -472,8 +453,8 @@ def generate_site(client, coding_model: str, save_path: str,
 
     tls_country = app_spec.get("country", "") or ctx.tls_country or country or ""
 
-    # ── Step 7: Save — modular folder per site ────────────────────────
-    print("  [7/8] Saving...")
+    # ── Step 6: Save — modular folder per site ────────────────────────
+    print("  [6/6] Saving...")
     org_slug = _org_slug(organization)
     folder_name = f"{org_slug}_{site_id}"
     out_dir = Path(save_path) / folder_name
@@ -493,8 +474,7 @@ def generate_site(client, coding_model: str, save_path: str,
         "description": app_spec.get("description", ""),
         "organization": organization,
         "domain": domain,
-        "server_profile": server_profile,
-        "mfa_enabled": mfa_enabled,
+        "server_profile": server_profile
     })
 
     # vulnerabilities.json
@@ -614,14 +594,9 @@ def generate_site(client, coding_model: str, save_path: str,
     }
     _write_json(out_dir / "api_routes.json", api_routes_data)
 
-    # mfa_page.html
-    if mfa_page_html:
-        mfa_path = out_dir / "mfa_page.html"
-        with open(mfa_path, "w", encoding="utf-8") as f:
-            f.write(mfa_page_html)
 
-    # ── Step 8: Nuclei templates + verification ───────────────────────
-    print("  [8/8] Generating Nuclei templates...")
+    # ── Step 7: Nuclei templates + verification ───────────────────────
+    print("  [7/7] Generating Nuclei templates...")
     users_list = app_spec.get("users", [])
     try:
         from ..nuclei_utils import generate_nuclei_templates
@@ -1268,74 +1243,3 @@ def generate_api_routes(client, coding_model: str, app_spec: dict,
                 "user_responses": user_responses,
             },
         }
-
-
-def generate_mfa_page(client, coding_model: str, app_name: str,
-                      organization: str, country: str, language: str,
-                      brand_color_line: str) -> str:
-    """Generate a realistic 2FA/MFA verification page HTML.
-
-    Returns a complete HTML document string.
-    """
-    try:
-        prompt = MFA_PAGE_PROMPT.format(
-            app_name=app_name,
-            organization=organization,
-            country=country,
-            language=language,
-            brand_color_line=brand_color_line,
-        )
-        raw_html = _generate_with_retry(client, prompt, coding_model, temperature=0.2, max_retries=client.max_retries)
-        html = clean_html(raw_html)
-        print(f"  [ok] MFA page generated ({len(html)} bytes)")
-        return html
-    except Exception as e:
-        print(f"  [warn] MFA page generation failed, using fallback: {e}")
-        # Return a minimal but functional fallback MFA page
-        return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Two-Factor Authentication - {app_name}</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    :root {{ --primary-color: #003580; --surface-color: #f4f6f9; }}
-    body {{ font-family: 'Inter', sans-serif; background: linear-gradient(135deg, var(--primary-color) 0%, #001a4d 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
-    .mfa-card {{ max-width: 420px; width: 100%; border-radius: 14px; border: 0; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }}
-  </style>
-</head>
-<body>
-  <div class="card mfa-card">
-    <div class="card-body p-4 p-md-5">
-      <div class="text-center mb-4">
-        <h2 class="h4 fw-bold" style="color: var(--primary-color);">{organization}</h2>
-        <p class="text-muted small">Two-Factor Authentication</p>
-      </div>
-      <p class="text-center text-muted small mb-4">A verification code has been sent to your registered device.</p>
-      <form action="/mfa" method="POST" id="mfaForm">
-        <div class="mb-3">
-          <label for="mfa_code" class="form-label fw-medium">Verification Code</label>
-          <input type="text" class="form-control text-center fs-4 letter-spacing-2" id="mfa_code" name="mfa_code" maxlength="6" pattern="[0-9]{{6}}" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" required>
-        </div>
-        <button type="submit" class="btn w-100 py-2 fw-semibold text-white" style="background: var(--primary-color);">Verify</button>
-      </form>
-      <div class="mt-3 text-center">
-        <a href="/mfa" class="small text-decoration-none">Resend code</a>
-        <span class="mx-2 text-muted">|</span>
-        <a href="/mfa" class="small text-decoration-none">Use backup code</a>
-      </div>
-      <p class="text-center text-muted mt-4" style="font-size: 0.7rem;">Authentication requests are logged for security monitoring.</p>
-    </div>
-  </div>
-  <script>
-    document.getElementById('mfaForm').addEventListener('submit', function(e) {{
-      e.preventDefault();
-      fetch('/mfa', {{ method: 'POST', body: new URLSearchParams(new FormData(this)) }})
-        .finally(() => {{ window.location.href = '/dashboard'; }});
-    }});
-  </script>
-</body>
-</html>"""
-

@@ -207,40 +207,4 @@ module "honeybot" {
   ssl_client_key = local.deploy_orchestrator ? tls_private_key.honeybot_cert[count.index].private_key_pem : (local.external_client_key_path != "" ? try(file(local.external_client_key_path), "") : "")
 }
 
-resource "null_resource" "honeybot_status" {
-  count = local.honeybot_amount
-  depends_on = [module.honeybot]
 
-  connection {
-    type        = "ssh"
-    user        = "ubuntu"
-    private_key = tls_private_key.generated[0].private_key_pem
-    host        = module.honeybot[count.index].public_ip
-    agent       = false
-  }
-
-  provisioner "file" {
-    source      = "${path.module}/../../../generated_sites"
-    destination = "/tmp"
-  }
-
-  provisioner "remote-exec" {
-    inline = [
-      "sudo mkdir -p /app",
-      "sudo cp -r /tmp/generated_sites /app/ || true",
-      "sudo chown -R root:root /app/generated_sites",
-      "while [ ! -f /var/log/cloud-init-output.log ]; do sleep 2; done",
-      "tail -n +1 -f /var/log/cloud-init-output.log | while read line; do",
-      "  case \"$line\" in",
-      "    *\"Orchestrator is not ready, honeybots are waiting...\"*) echo \"[Orchestrator is still starting]\" ;;",
-      "    *\"Honeybots are pulling the image now...\"*) echo \"[Honeybots are connected and image is pulling]\" ;;",
-      "    *\"heiLLMpot honeybot bootstrap complete\"*)",
-      "      echo \"[Honeybot deployment complete!]\"",
-      "      pkill -f cloud-init-output.log || true",
-      "      break",
-      "      ;;",
-      "  esac",
-      "done"
-    ]
-  }
-}

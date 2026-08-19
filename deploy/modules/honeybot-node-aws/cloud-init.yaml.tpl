@@ -43,6 +43,12 @@ runcmd:
   # ── Create application directories ─────────────────────────────────────────
   - mkdir -p /app/config /app/generated_sites /app/certs /app/logs
 
+  # ── Fetch generated sites from orchestrator ────────────────────────────────
+  - |
+    echo "Downloading sites archive from orchestrator..."
+    curl -skf --cacert /app/certs/ca.crt --cert /app/certs/client.crt --key /app/certs/client.key ${orchestrator_url}/sites.tar.gz -o /tmp/sites.tar.gz
+    tar -xzf /tmp/sites.tar.gz -C /app/generated_sites
+
   # ── Register with the orchestrator ─────────────────────────────────────────
   - |
     while true; do

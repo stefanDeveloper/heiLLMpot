@@ -72,20 +72,14 @@ private:
         nlohmann::json api_routes;   // full parsed api_routes.json
         // Valid user credentials for login validation (from users.json)
         std::map<std::string, std::string> valid_users;  // username -> password
-        // MFA verification page HTML (from mfa_page.html)
-        std::string mfa_page_html;
-        bool mfa_enabled = true;
+
     };
 
     struct SessionState {
         bool authenticated = false;
         std::string username;
         std::string session_cookie;
-        std::string next_url;         // Store intended redirect target across MFA
-        bool mfa_required = false;    // true after correct password, awaiting 2FA
-        bool mfa_completed = false;   // true after any 2FA code submitted
         int login_attempts = 0;       // track brute-force count per session
-        int mfa_attempts = 0;         // track MFA attempts per session
     };
 
     // ─── Methods ────────────────────────────────────────────────────────
@@ -101,9 +95,6 @@ private:
     void handle_login_post(const httplib::Request& req, httplib::Response& res,
                            SiteData* site, const std::string& session_id);
     bool check_sqli_leak(const std::string& input, httplib::Response& res, SiteData* site);
-    void handle_mfa_request(const httplib::Request& req, httplib::Response& res,
-                            const std::string& method, SiteData* site,
-                            const std::string& session_id);
     void apply_fingerprint(httplib::Response& res);
     void add_adaptive_jitter(const std::string& path, const std::string& method,
                              int login_attempts = 0);

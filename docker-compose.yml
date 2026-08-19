@@ -76,6 +76,7 @@ services:
       - "${ORCHESTRATOR_HTTP_PORT:-80}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/sites.tar.gz:/var/www/sites.tar.gz:ro
       - ./certs/server.crt:/etc/nginx/ssl/server.crt:ro
       - ./certs/server.key:/etc/nginx/ssl/server.key:ro
       - ./certs/ca.crt:/etc/nginx/ssl/ca.crt:ro
