@@ -257,43 +257,6 @@ http:
 """
 
 
-def gen_command_injection(domain: str, target_route: str, parameter: str, site_id: str) -> str:
-    """Command injection — checks if the server executes an appended shell command."""
-    path = target_route if target_route.startswith("/") else f"/{target_route}"
-    payload = ";id"
-    payload_enc = "%3Bid"
-    header = _header(
-        template_id=f"honeypot-rce-{site_id[:8]}",
-        name=f"Command Injection (RCE) – {domain}",
-        author="heiLLMpot",
-        severity="critical",
-        description=(
-            f"Detects OS command injection via the '{parameter}' parameter at {path} on {domain}. "
-            "Checks if the server blindly executes appended shell commands and reflects output. "
-            "Intentional honeypot vulnerability."
-        ),
-        tags=["rce", "command-injection", "honeypot"],
-    )
-    return header + f"""
-http:
-  - method: GET
-    path:
-      - "{{{{BaseURL}}}}{path}?{parameter}=127.0.0.1{payload_enc}"
-      - "{{{{BaseURL}}}}{path}?{parameter}=127.0.0.1{payload}"
-
-    matchers-condition: and
-    matchers:
-      - type: regex
-        regex:
-          - "uid=[0-9]+\\(.*?\\) gid=[0-9]+\\(.*?\\)"
-        part: body
-
-      - type: status
-        status:
-          - 200
-"""
-
-
 def gen_open_redirect(domain: str, target_route: str, parameter: str, site_id: str) -> str:
     """Open redirect — checks if the server follows an arbitrary Location redirect."""
     path = target_route if target_route.startswith("/") else f"/{target_route}"
@@ -547,11 +510,7 @@ def generate_nuclei_templates(
             vuln_path.write_text(
                 gen_path_traversal(domain, target_route, parameter, site_id), encoding="utf-8"
             )
-        elif canonical == "rce":
-            vuln_path = nuclei_dir / f"command_injection_{parameter}.yaml"
-            vuln_path.write_text(
-                gen_command_injection(domain, target_route, parameter, site_id), encoding="utf-8"
-            )
+
         elif canonical == "redirect":
             vuln_path = nuclei_dir / f"open_redirect_{parameter}.yaml"
             vuln_path.write_text(
