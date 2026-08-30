@@ -111,7 +111,8 @@ deploy/environments/**/*.json
 !deploy/environments/**/config.json.example
 
 # Private data and cookies
-cookies.txt
+cookie*.txt
+cookies*.txt
 
 # Massive binaries and deployment artifacts
 honeybot.tar

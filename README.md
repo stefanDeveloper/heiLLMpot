@@ -110,7 +110,7 @@ python3 -m venv .venv
 pip install requests tqdm
 python generator/generate_multi_route.py \
   --provider ollama \
-  --models kimi-k2.7-code:cloud \
+  --models llama3.2:3b \
   --count 1 \
   --context ai-company \
   --country US \
@@ -145,7 +145,7 @@ Built-in contexts include `university`, `hospital`, `bank`, `corporate`,
 
 ```bash
 # Local Ollama
-python generator/generate_multi_route.py --provider ollama --models kimi-k2.7-code:cloud
+python generator/generate_multi_route.py --provider ollama --models llama3.2:3b
 
 # OpenAI
 OPENAI_API_KEY=... python generator/generate_multi_route.py \

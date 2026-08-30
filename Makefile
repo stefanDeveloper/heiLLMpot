@@ -25,8 +25,8 @@ up-node: env certs
 	$(COMPOSE) --profile node up -d --build honeybot
 
 push-honeybot:
-	@echo "Building and pushing honeybot for linux/amd64 to match AWS instances..."
-	docker buildx build --platform linux/amd64 -t dockerphil1234/honeybot:latest --push ./honeybot
+	@echo "Building and pushing honeybot for linux/amd64..."
+	docker buildx build --platform linux/amd64 -t $${HONEYBOT_IMAGE:-heillmpot/honeybot:latest} --push ./honeybot
 
 dashboard: env
 	$(COMPOSE) up -d --build dashboard

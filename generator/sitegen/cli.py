@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""
 Examples:
   # Generate with local Ollama
-  %(prog)s --provider ollama --models kimi-k2.7-code:cloud --count 3 \\
+  %(prog)s --provider ollama --models llama3.2:3b --count 3 \\
             --context hospital --country US --language English
 
   # Generate with OpenAI
@@ -44,7 +44,7 @@ Examples:
             --models gemini-2.5-flash --count 2 --context ai-company
 
   # Use a custom context file
-  %(prog)s --models kimi-k2.7-code:cloud --count 2 \\
+  %(prog)s --models llama3.2:3b --count 2 \\
             --context generator/contexts/custom.json
         """,
     )

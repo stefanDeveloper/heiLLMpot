@@ -126,7 +126,7 @@ services:
       dockerfile: Dockerfile
       args:
         - GITHUB_TOKEN=${GITHUB_TOKEN:-}
-    image: dockerphil1234/honeybot:latest
+    image: ${HONEYBOT_IMAGE:-heillmpot/honeybot:latest}
     logging: *default-logging
     container_name: honeypot_node
     restart: unless-stopped

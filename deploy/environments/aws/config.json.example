@@ -1,6 +1,6 @@
 {
   "aws_region": "eu-central-1",
-  "honeybot_image": "dockerphil1234/honeybot:latest",
+  "honeybot_image": "heillmpot/honeybot:latest",
   "deploy_orchestrator": true,
   "orchestrator_instance_type": "t3.small",
   "honeybot_amount": 3,
