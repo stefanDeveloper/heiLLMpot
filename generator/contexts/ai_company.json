@@ -74,5 +74,10 @@
     "SSH-2.0-OpenSSH_8.7"
   ],
   "tls_country": "",
+  "offerings_label": "Products & APIs",
+  "personnel_label": "Team",
+  "personnel_role_filter": ["developer", "ml_engineer", "researcher", "security_engineer"],
+  "dashboard_persona": "developer",
+  "dashboard_tabs": ["API Keys & Usage", "Models", "Billing"],
   "notes": "AI company and frontier-model provider portals inspired by major AI vendors while using fictional names and domains."
 }

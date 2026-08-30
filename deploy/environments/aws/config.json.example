@@ -1,0 +1,12 @@
+{
+  "aws_region": "eu-central-1",
+  "honeybot_image": "heillmpot/honeybot:latest",
+  "deploy_orchestrator": true,
+  "orchestrator_instance_type": "t3.small",
+  "honeybot_amount": 3,
+  "honeybot_instance_type": "t3.small",
+  "orchestrator_url": "https://<your-local-ip>:8443",
+  "external_ca_cert_path": "../../../certs/ca.crt",
+  "external_client_crt_path": "../../../certs/node-aws-1.crt",
+  "external_client_key_path": "../../../certs/node-aws-1.key"
+}

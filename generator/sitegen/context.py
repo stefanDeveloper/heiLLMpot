@@ -44,6 +44,15 @@ class DeploymentContext:
         "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10",
     ])
     tls_country: str = ""
+    # Landing page tab configuration
+    offerings_label: str = "Services"
+    personnel_label: str = "Our Team"
+    personnel_role_filter: list[str] = field(default_factory=list)
+    # Dashboard tab configuration
+    dashboard_persona: str = "user"
+    dashboard_tabs: list[str] = field(default_factory=lambda: [
+        "Overview", "Tasks", "Reports"
+    ])
 
     @classmethod
     def from_json(cls, path: str) -> "DeploymentContext":

@@ -29,5 +29,10 @@
     "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"
   ],
   "tls_country": "",
+  "offerings_label": "Departments & Services",
+  "personnel_label": "Medical Staff",
+  "personnel_role_filter": ["doctor", "nurse", "pharmacist", "lab_technician"],
+  "dashboard_persona": "clinician",
+  "dashboard_tabs": ["My Patients", "Schedule", "Lab Results"],
   "notes": "Healthcare portals: EHR, PACS, scheduling. HIPAA/GDPR-aware naming."
 }

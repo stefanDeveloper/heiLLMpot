@@ -28,6 +28,8 @@ struct OrchestratorConfig {
 
     // Worker
     int worker_interval_sec = 30;
+    int retention_days = 7;
+    int max_db_size_gb = 50;
 };
 
 /// Global config singleton – loaded once at startup.

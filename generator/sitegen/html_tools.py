@@ -118,6 +118,9 @@ def extract_json(text: str) -> dict:
     """Extract JSON from LLM output, including common markdown wrappers."""
     text = remove_think_tags(text)
 
+    if not text or not text.strip():
+        raise ValueError("Empty or whitespace-only response; no JSON to extract")
+
     match = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
     if match:
         text = match.group(1).strip()
@@ -127,7 +130,17 @@ def extract_json(text: str) -> dict:
     if start != -1 and end != -1 and end > start:
         text = text[start:end + 1]
 
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Try basic repairs for common LLM JSON formatting mistakes
+        # 1. Missing commas between lines/objects
+        text = re.sub(r'([}\]])\s*(["{\[])', r'\1,\n\2', text)
+        text = re.sub(r'("\s*:?\s*"[^"]*")\s*("\s*:)', r'\1,\n\2', text)
+        # 2. Trailing commas
+        text = re.sub(r",(\s*[}\]])", r"\1", text)
+
+        return json.loads(text)
 
 
 def clean_html(html: str) -> str:
@@ -152,6 +165,23 @@ def clean_html(html: str) -> str:
 
     html = re.sub(r"http://localhost:\d+", "", html)
     html = re.sub(r"http://127\.0\.0\.1:\d+", "", html)
+
+    # Remove trailing unclosed tags/words that are cut off (e.g. "<div clas" or "<a href=")
+    html = re.sub(r"<[a-zA-Z][^>]*$", "", html)
+
+    # Auto-close open structural tags in case LLM output was truncated
+    parser = TagBalanceParser()
+    try:
+        parser.feed(html)
+        parser.close()
+        unclosed = [
+            tag for tag in parser.stack 
+            if tag in STRUCTURAL_TAGS and tag not in {"html", "body"}
+        ]
+        if unclosed:
+            html += "".join(f"</{tag}>" for tag in reversed(unclosed))
+    except Exception:
+        pass
 
     if not html.strip().lower().startswith("<!doctype"):
         if "<html" in html.lower():
@@ -358,3 +388,37 @@ def validate_html_basic(html: str) -> tuple[bool, list[str]]:
 def json_for_prompt(value) -> str:
     """Serialize JSON-ish values for prompt context."""
     return json.dumps(value, indent=2, ensure_ascii=False)
+
+
+def verify_vulnerability_static(
+    html: str, vuln_type: str, parameter: str
+) -> tuple[bool, str]:
+    """Quick static check: verify the vulnerable parameter exists in the HTML.
+
+    Returns (True, reason) if the check passes, (False, reason) if it fails.
+    This is a cheap pre-flight before invoking the LLM security critic.
+    """
+    if not vuln_type or not parameter:
+        return True, "No vulnerability spec to check."
+
+    vuln_lower = vuln_type.lower()
+
+    if "sql" in vuln_lower or "xss" in vuln_lower:
+        if (
+            f'name="{parameter}"' not in html
+            and f"name='{parameter}'" not in html
+        ):
+            return (
+                False,
+                f"Vulnerable parameter '{parameter}' not found in any form field.",
+            )
+
+    if "idor" in vuln_lower:
+        if parameter not in html:
+            return (
+                False,
+                f"IDOR parameter '{parameter}' not referenced anywhere in the HTML.",
+            )
+
+    return True, "Static check passed."
+

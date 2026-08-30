@@ -46,13 +46,36 @@ ICONS = {
 def run_interactive(args: argparse.Namespace) -> argparse.Namespace | None:
     """Launch the terminal UI and return updated args, or None on cancel."""
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        print("[!] --interactive requires a real terminal (TTY).")
+        print("[!] --interactive requires a real terminal (TTY).", file=sys.stderr)
         return None
 
     locale.setlocale(locale.LC_ALL, "")
     state = state_from_args(args)
-    result = curses.wrapper(lambda stdscr: Tui(stdscr, state).run())
+
+    too_small: list[bool] = []
+
+    def _run(stdscr):
+        result = Tui(stdscr, state).run()
+        if result is None and getattr(_run, "_too_small", False):
+            too_small.append(True)
+        return result
+
+    try:
+        result = curses.wrapper(lambda stdscr: Tui(stdscr, state, too_small).run())
+    except KeyboardInterrupt:
+        print("Cancelled via Ctrl-C.", file=sys.stderr)
+        return None
+    except Exception as exc:
+        print(f"[!] TUI error: {exc}", file=sys.stderr)
+        return None
+
+    if too_small:
+        print("[!] Terminal too small. Please resize to at least 80×24 and retry.",
+              file=sys.stderr)
+        return None
+
     if result is None:
+        print("Cancelled.", file=sys.stderr)
         return None
 
     apply_state_to_args(args, result)
@@ -60,8 +83,28 @@ def run_interactive(args: argparse.Namespace) -> argparse.Namespace | None:
 
 
 def state_from_args(args: argparse.Namespace) -> dict[str, str]:
-    provider = normalize_provider(args.provider)
-    models = " ".join(args.models or [DEFAULT_MODELS[provider]])
+    raw_provider = normalize_provider(args.provider)
+    if raw_provider == "ollama":
+        url = args.ollama_url or os.environ.get("OLLAMA_BASE_URL", "")
+        # If URL points to cloud domain, or if we have an API key set, default to ollama-cloud
+        if "api.ollama.cloud" in url or "ollama.com" in url or args.api_key or os.environ.get("OLLAMA_API_KEY"):
+            provider = "ollama-cloud"
+        else:
+            provider = "ollama-local"
+    else:
+        provider = raw_provider
+
+    # Resolve default model if none specified
+    if args.models:
+        models = " ".join(args.models)
+    else:
+        if provider == "ollama-local":
+            models = "llama3.2:3b"
+        elif provider == "ollama-cloud":
+            models = "gemma4"
+        else:
+            models = DEFAULT_MODELS.get(raw_provider, "")
+
     return {
         "provider": provider,
         "models": models,
@@ -73,14 +116,19 @@ def state_from_args(args: argparse.Namespace) -> dict[str, str]:
         "output": args.output,
         "temperature": str(args.temperature),
         "max_output_tokens": str(args.max_output_tokens),
-        "ollama_url": args.ollama_url,
-        "api_base_url": args.api_base_url,
-        "api_key": args.api_key,
+        "ollama_url": args.ollama_url or "",
+        "api_base_url": args.api_base_url or "",
+        "api_key": args.api_key or "",
+        "vulnerabilities": " ".join(args.vulnerabilities) if getattr(args, "vulnerabilities", None) else "",
     }
 
 
 def apply_state_to_args(args: argparse.Namespace, state: dict[str, str]) -> None:
-    provider = normalize_provider(state["provider"])
+    raw_prov = state["provider"]
+    if raw_prov.startswith("ollama"):
+        provider = "ollama"
+    else:
+        provider = normalize_provider(raw_prov)
     args.provider = provider
     args.models = split_models(state["models"]) or [DEFAULT_MODELS[provider]]
     args.context = state["context"]
@@ -97,6 +145,7 @@ def apply_state_to_args(args: argparse.Namespace, state: dict[str, str]) -> None
     args.ollama_url = state["ollama_url"] or DEFAULT_BASE_URLS["ollama"]
     args.api_base_url = state["api_base_url"]
     args.api_key = state["api_key"]
+    args.vulnerabilities = split_models(state.get("vulnerabilities", ""))
 
 
 def split_models(value: str) -> list[str]:
@@ -119,14 +168,20 @@ def parse_float(value: str, fallback: float) -> float:
 
 
 class Tui:
-    def __init__(self, stdscr, state: dict[str, str]):
+    def __init__(self, stdscr, state: dict[str, str],
+                 too_small_flag: list | None = None):
         self.stdscr = stdscr
         self.state = state
+        self.too_small_flag = too_small_flag
         self.cursor = 0
-        self.message = "Arrow keys navigate. Enter edits. s starts. q cancels."
+        self.message = "↑↓ navigate · Enter/←→ edit · s=start · q=quit"
         self.unicode = terminal_supports_unicode()
         self.contexts = self.load_contexts()
+        self.vuln_presets = self.load_vuln_presets()
         self.fields = self.build_fields()
+
+        if not self.state.get("provider"):
+            self.state["provider"] = "ollama-local"
 
     def run(self) -> dict[str, str] | None:
         curses.curs_set(0)
@@ -161,44 +216,6 @@ class Tui:
         curses.init_pair(3, curses.COLOR_GREEN, -1)
         curses.init_pair(4, curses.COLOR_YELLOW, -1)
 
-    def build_fields(self) -> list[Field]:
-        return [
-            Field(
-                "provider",
-                "Provider",
-                "choice",
-                sorted(set(PROVIDER_ALIASES.values())),
-                help_text="Hosted providers use API keys from env vars or the API Key field.",
-            ),
-            Field(
-                "models",
-                "Model(s)",
-                help_text="Space-separated models. Empty uses the provider default.",
-            ),
-            Field(
-                "context",
-                "Context",
-                "choice",
-                self.contexts,
-                help_text="Use ai_company/ai-company for AI vendor-style portals.",
-            ),
-            Field("country", "Country", help_text="ISO code, e.g. US or DE. Empty lets the LLM choose."),
-            Field("language", "Language"),
-            Field("count", "Sites", help_text="How many sites to generate per model."),
-            Field(
-                "agent_depth",
-                "Agent Depth",
-                "choice",
-                ["basic", "standard", "deep"],
-                help_text="Deep adds final realism QA for more polished pages.",
-            ),
-            Field("output", "Output Dir"),
-            Field("temperature", "Temperature"),
-            Field("max_output_tokens", "Max Tokens"),
-            Field("ollama_url", "Ollama URL"),
-            Field("api_base_url", "API Base URL", help_text="Optional hosted-provider override."),
-            Field("api_key", "API Key", secret=True, help_text="Optional; env vars are preferred."),
-        ]
 
     def load_contexts(self) -> list[str]:
         contexts_dir = Path(__file__).resolve().parents[1] / "contexts"
@@ -206,12 +223,84 @@ class Tui:
         aliases = ["ai-company", "llm-provider", "model-provider"]
         return sorted(set(contexts + aliases))
 
+    def load_vuln_presets(self) -> list[str]:
+        vuln_dir = Path(__file__).resolve().parents[1] / "vulnerabilities"
+        presets = sorted(path.stem for path in vuln_dir.glob("*.json"))
+        return presets + [""]  # First preset becomes default
+
+    def get_models_for_provider(self, provider: str) -> list[str]:
+        if provider == "ollama-local":
+            return ["llama3.2:3b", "llama3:8b", "llama3:70b", "mistral", "gemma2"]
+        elif provider == "ollama-cloud":
+            return [
+                "gemma4",
+                "qwen3.5",
+                "gemma3",
+                "deepseek-v4-pro",
+                "gpt-oss",
+                "mistral-large-3",
+                "glm-5",
+                "minimax-m2.7",
+                "qwen3-coder-next",
+                "devstral-small-2"
+            ]
+        elif provider == "openai":
+            return ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"]
+        elif provider == "anthropic":
+            return ["claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku"]
+        elif provider == "google":
+            return ["gemini-2.5-flash", "gemini-2.0-pro"]
+        return ["default"]
+
+    def build_fields(self) -> list[Field]:
+        return [
+            Field(
+                "provider", "Provider", "choice",
+                ["ollama-local", "ollama-cloud", "openai", "anthropic", "google"],
+                help_text="Cloud providers use API keys from env vars or the API Key field.",
+            ),
+            Field(
+                "models", "Model", "choice",
+                self.get_models_for_provider(self.state.get("provider", "ollama-local")),
+                help_text="Select a model for the current provider (cycle with arrows).",
+            ),
+            Field(
+                "context", "Context", "choice", self.contexts,
+                help_text="Use ai_company/ai-company for AI vendor-style portals.",
+            ),
+            Field(
+                "vulnerabilities", "Vulnerabilities", "choice", self.vuln_presets,
+                help_text="Presets to enforce (space-separated). Empty = Random.",
+            ),
+            Field("country", "Country",
+                  help_text="ISO code, e.g. US or DE. Empty lets the LLM choose."),
+            Field("language", "Language"),
+            Field("count", "Sites",
+                  help_text="How many sites to generate per model."),
+            Field(
+                "agent_depth", "Agent Depth", "choice",
+                ["basic", "standard", "deep"],
+                help_text="Deep adds final realism QA for more polished pages.",
+            ),
+            Field("output", "Output Dir"),
+            Field("temperature", "Temperature"),
+            Field("max_output_tokens", "Max Tokens"),
+            Field("ollama_url", "Ollama URL"),
+            Field("api_base_url", "API Base URL",
+                  help_text="Optional hosted-provider override."),
+            Field("api_key", "API Key", secret=True,
+                  help_text="Optional; env vars are preferred."),
+        ]
+
     def render(self) -> None:
         self.stdscr.erase()
         height, width = self.stdscr.getmaxyx()
         if height < 24 or width < 80:
-            self.add(0, 0, "Terminal too small. Please use at least 80x24.")
+            msg = f"Terminal too small ({width}x{height}). Need at least 80x24."
+            self.stdscr.addnstr(0, 0, msg, width)
             self.stdscr.refresh()
+            if self.too_small_flag is not None and not self.too_small_flag:
+                self.too_small_flag.append(True)
             return
 
         self.draw_frame(height, width)
@@ -278,24 +367,35 @@ class Tui:
             index = 0
         self.state[field.key] = field.options[(index + direction) % len(field.options)]
         if field.key == "provider":
-            provider = normalize_provider(self.state[field.key])
-            self.state["models"] = DEFAULT_MODELS[provider]
-            if provider == "ollama":
-                self.state["ollama_url"] = DEFAULT_BASE_URLS["ollama"]
-            elif not self.state.get("api_base_url"):
-                self.state["api_base_url"] = ""
+            prov_choice = self.state[field.key]
+            model_field = next(f for f in self.fields if f.key == "models")
+            model_field.options = self.get_models_for_provider(prov_choice)
+            self.state["models"] = model_field.options[0]
+            
+            if prov_choice == "ollama-local":
+                self.state["ollama_url"] = "http://localhost:11434"
+                self.state["api_key"] = ""
+            elif prov_choice == "ollama-cloud":
+                self.state["ollama_url"] = os.environ.get("OLLAMA_BASE_URL", "https://api.ollama.cloud")
+                self.state["api_key"] = os.environ.get("OLLAMA_API_KEY", "")
+            else:
+                if not self.state.get("api_base_url"):
+                    self.state["api_base_url"] = ""
 
     def activate_current(self) -> None:
         field = self.fields[self.cursor]
-        if field.kind == "choice":
-            self.cycle_current(1)
-            return
-
         value = self.state.get(field.key, "")
         prompt = f"{field.label}: "
         new_value = self.prompt_text(prompt, value, secret=field.secret)
         if new_value is not None:
             self.state[field.key] = new_value
+            if field.key == "provider":
+                prov_choice = self.state[field.key]
+                model_field = next((f for f in self.fields if f.key == "models"), None)
+                if model_field:
+                    model_field.options = self.get_models_for_provider(prov_choice)
+                    if model_field.options:
+                        self.state["models"] = model_field.options[0]
 
     def prompt_text(self, prompt: str, initial: str, secret: bool = False) -> str | None:
         height, width = self.stdscr.getmaxyx()
@@ -315,6 +415,9 @@ class Tui:
 
         if secret:
             curses.noecho()
+        
+        # Discard any leftover newline keys in the input buffer
+        curses.flushinp()
         try:
             raw = self.stdscr.getstr(y, x, width - x - 4)
         finally:
@@ -353,9 +456,10 @@ def terminal_supports_unicode() -> bool:
 
 
 def command_preview(state: dict[str, str]) -> list[str]:
-    provider = normalize_provider(state["provider"])
+    raw_prov = state.get("provider", "ollama-local")
+    provider = "ollama" if raw_prov.startswith("ollama") else normalize_provider(raw_prov)
     parts = [
-        "python3 generator/generate_multi_route.py",
+        "python3 -m generator.sitegen.cli",
         "--provider", provider,
         "--models", state.get("models") or DEFAULT_MODELS[provider],
         "--context", state.get("context", "university"),
@@ -378,8 +482,12 @@ def command_preview(state: dict[str, str]) -> list[str]:
         parts.extend(["--ollama-url", state["ollama_url"]])
     elif provider != "ollama" and state.get("api_base_url"):
         parts.extend(["--api-base-url", state["api_base_url"]])
-    if provider != "ollama" and state.get("api_key"):
+    if state.get("api_key"):
         parts.extend(["--api-key", "<provided>"])
+
+    if state.get("vulnerabilities"):
+        parts.extend(["--vulnerabilities"])
+        parts.extend(split_models(state["vulnerabilities"]))
 
     command = " ".join(shlex.quote(part) for part in parts)
     return wrap_text(command, 58)
@@ -387,8 +495,13 @@ def command_preview(state: dict[str, str]) -> list[str]:
 
 def config_warnings(state: dict[str, str]) -> list[str]:
     warnings = []
-    provider = normalize_provider(state["provider"])
-    if provider != "ollama" and not state.get("api_key"):
+    raw_prov = state.get("provider", "ollama-local")
+    provider = "ollama" if raw_prov.startswith("ollama") else normalize_provider(raw_prov)
+    
+    if raw_prov == "ollama-cloud":
+        if not state.get("api_key") and not os.environ.get("OLLAMA_API_KEY"):
+            warnings.append("Ollama Cloud typically requires an API key.")
+    elif provider != "ollama" and not state.get("api_key"):
         env_names = API_KEY_ENV_VARS.get(provider, [])
         if not any(os.getenv(name) for name in env_names):
             warnings.append(f"No API key found for {provider}.")

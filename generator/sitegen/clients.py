@@ -5,71 +5,91 @@ from __future__ import annotations
 import os
 import random
 import time
+from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
 import requests
+from dotenv import load_dotenv
+
+# Load .env from project root (two levels up from this file)
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
 class OllamaClient:
-    """Thin client for the Ollama /api/generate endpoint."""
+    """Ollama client using the official `ollama` Python library.
 
-    def __init__(self, base_url: str = "http://localhost:11434",
+    Supports both local Ollama and cloud/hosted Ollama instances.
+    Configuration (in order of priority):
+      - Constructor args (base_url, api_key)
+      - Environment variables: OLLAMA_BASE_URL, OLLAMA_API_KEY
+      - Defaults: http://localhost:11434, no key
+    """
+
+    def __init__(self, base_url: str = "",
                  timeout: int = 300, max_retries: int = 3,
-                 max_output_tokens: int = 8192):
-        self.base_url = base_url.rstrip("/")
+                 max_output_tokens: int = 8192,
+                 api_key: str = ""):
+        from ollama import Client as _OllamaLibClient
+
+        self.base_url = (
+            base_url
+            or os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        ).rstrip("/")
+        self.api_key = api_key or os.environ.get("OLLAMA_API_KEY", "")
         self.timeout = timeout
         self.max_retries = max_retries
         self.max_output_tokens = max_output_tokens
 
-    @property
-    def generate_url(self) -> str:
-        return f"{self.base_url}/api/generate"
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        self._client = _OllamaLibClient(
+            host=self.base_url,
+            headers=headers,
+            timeout=self.timeout,
+        )
 
     def generate(self, prompt: str, model: str,
                  temperature: float = 0.3) -> str:
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": temperature,
-                "num_predict": self.max_output_tokens,
-            },
-        }
-        return self._post_generate(payload)["response"]
-
-    def list_models(self) -> list[str]:
-        try:
-            res = requests.get(f"{self.base_url}/api/tags", timeout=10)
-            res.raise_for_status()
-            return [m["name"] for m in res.json().get("models", [])]
-        except Exception:
-            return []
-
-    def _post_generate(self, payload: dict) -> dict:
+        """Call Ollama chat API and return response text, with retries."""
         last_error: Optional[Exception] = None
         for attempt in range(self.max_retries):
             try:
-                res = requests.post(
-                    self.generate_url,
-                    json=payload,
-                    timeout=self.timeout,
+                response = self._client.chat(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    options={"temperature": temperature,
+                             "num_ctx": 16384,
+                             "num_predict": self.max_output_tokens},
+                    stream=False,
                 )
-                res.raise_for_status()
-                return res.json()
-            except (requests.ConnectionError, requests.Timeout) as e:
+                result = response.message.content or ""
+                # Some models (e.g. kimi-k2.7-code:cloud) return the actual
+                # output in the `thinking` field when content is empty.
+                if not result.strip() and getattr(response.message, "thinking", None):
+                    result = response.message.thinking
+                if not result or not result.strip():
+                    raise RuntimeError("Ollama returned an empty/whitespace response")
+                return result
+            except Exception as e:
                 last_error = e
                 wait = 2 ** attempt + random.uniform(0, 1)
                 print(f"    [retry {attempt + 1}/{self.max_retries}] "
-                      f"Connection error: {e}. Retrying in {wait:.1f}s...")
+                      f"Error: {e}. Retrying in {wait:.1f}s...")
                 time.sleep(wait)
-            except requests.HTTPError:
-                raise
         raise RuntimeError(
             f"Ollama request failed after {self.max_retries} retries: "
             f"{last_error}"
         )
+
+    def list_models(self) -> list[str]:
+        try:
+            response = self._client.list()
+            return [m.model for m in response.models]
+        except Exception:
+            return []
 
 
 class HostedLLMClient:
@@ -95,6 +115,7 @@ class HostedLLMClient:
         return []
 
     def _post_json(self, url: str, payload: dict, headers: dict) -> dict:
+        """POST JSON with retries on connection/timeout and retryable HTTP errors."""
         last_error: Optional[Exception] = None
         for attempt in range(self.max_retries):
             try:
@@ -108,16 +129,43 @@ class HostedLLMClient:
                 return res.json()
             except (requests.ConnectionError, requests.Timeout) as e:
                 last_error = e
+            except requests.HTTPError as e:
+                status = e.response.status_code if e.response else 0
+                # Retry transient 5xx / rate-limit / gateway timeouts.
+                # 524 (Cloudflare origin timeout) is explicitly retryable.
+                if status in (429, 502, 503, 504, 524):
+                    last_error = e
+                else:
+                    raise
+            if last_error is not None:
                 wait = 2 ** attempt + random.uniform(0, 1)
                 print(f"    [retry {attempt + 1}/{self.max_retries}] "
-                      f"Connection error: {e}. Retrying in {wait:.1f}s...")
+                      f"Transient error: {last_error}. Retrying in {wait:.1f}s...")
                 time.sleep(wait)
-            except requests.HTTPError:
-                raise
         raise RuntimeError(
             f"{self.provider} request failed after "
             f"{self.max_retries} retries: {last_error}"
         )
+
+
+def _generate_with_retry(client, prompt: str, model: str, temperature: float, max_retries: int):
+    """Wrap a single LLM generation with empty-response retry logic."""
+    last_error: Optional[Exception] = None
+    for attempt in range(max_retries):
+        try:
+            result = client.generate(prompt, model, temperature=temperature)
+            if not result or not result.strip():
+                raise RuntimeError("LLM returned an empty/whitespace response")
+            return result
+        except Exception as e:
+            last_error = e
+            wait = 2 ** attempt + random.uniform(0, 1)
+            print(f"    [retry {attempt + 1}/{max_retries}] "
+                  f"Generation error: {e}. Retrying in {wait:.1f}s...")
+            time.sleep(wait)
+    raise RuntimeError(
+        f"LLM generation failed after {max_retries} retries: {last_error}"
+    )
 
 
 class OpenAIClient(HostedLLMClient):
@@ -263,14 +311,15 @@ PROVIDER_ALIASES = {
 }
 
 DEFAULT_BASE_URLS = {
-    "ollama": "http://localhost:11434",
+    # For Ollama: prefer OLLAMA_BASE_URL env var (set in .env for cloud)
+    "ollama": os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
     "openai": "https://api.openai.com/v1",
     "anthropic": "https://api.anthropic.com",
     "google": "https://generativelanguage.googleapis.com/v1beta",
 }
 
 DEFAULT_MODELS = {
-    "ollama": "llama3.2:3b",
+    "ollama": "kimi-k2.7-code:cloud",
     "openai": "gpt-5-mini",
     "anthropic": "claude-sonnet-4-5",
     "google": "gemini-2.5-flash",
@@ -313,6 +362,7 @@ def create_llm_client(provider: str, base_url: str = "",
     if provider == "ollama":
         return OllamaClient(
             base_url=base_url,
+            api_key=api_key or os.environ.get("OLLAMA_API_KEY", ""),
             timeout=timeout,
             max_retries=max_retries,
             max_output_tokens=max_output_tokens,
