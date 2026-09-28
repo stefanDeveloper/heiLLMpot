@@ -115,6 +115,9 @@ cookie*.txt
 cookies*.txt
 
 # Massive binaries and deployment artifacts
-honeybot.tar
+*.tar
+*.tar.gz
+*.tgz
+*.zip
 deploy/honeypot_patched
 backups/

@@ -28,8 +28,6 @@ services:
     build:
       context: ./orchestrator
       dockerfile: Dockerfile
-      args:
-        - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     logging: *default-logging
     container_name: honeypot_orchestrator
     restart: unless-stopped
@@ -124,8 +122,6 @@ services:
     build:
       context: ./honeybot
       dockerfile: Dockerfile
-      args:
-        - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     image: ${HONEYBOT_IMAGE:-heillmpot/honeybot:latest}
     logging: *default-logging
     container_name: honeypot_node
@@ -134,7 +130,7 @@ services:
       orchestrator:
         condition: service_healthy
     environment:
-      HONEYPOT_LOG_FILE: /dev/null
+      HONEYPOT_LOG_FILE: /app/logs/honeypot.jsonl
       SITES_DIR: /app/generated_sites
       HTTP_LISTEN_ADDR: 0.0.0.0
       HTTP_PORT: 8081

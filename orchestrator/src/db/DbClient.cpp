@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <cstring>
 #include <arpa/inet.h>
+#include <iostream>
 
 namespace {
 
