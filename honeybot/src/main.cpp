@@ -93,6 +93,7 @@ void applyEnvOverrides(nlohmann::json& config) {
     setString(config, "http", "key_path", "HTTP_KEY_PATH");
     setString(config, "http", "sites_dir", "SITES_DIR");
     setBool(config, "http", "rotate_sites", "HTTP_ROTATE_SITES");
+    setString(config, "http", "active_site", "HTTP_ACTIVE_SITE");
 
     setBool(config, "ssh", "enabled", "SSH_ENABLED");
     setString(config, "ssh", "listen_addr", "SSH_LISTEN_ADDR");
@@ -202,6 +203,7 @@ int main(int argc, char* argv[]) {
         http_cfg.jitter_min_ms = http_config_json.value("jitter_min_ms", 20);
         http_cfg.jitter_max_ms = http_config_json.value("jitter_max_ms", 200);
         http_cfg.rotate_sites  = http_config_json.value("rotate_sites", false);
+        http_cfg.active_site   = http_config_json.value("active_site", "");
 
         // TLS metadata defaults from config (site JSON fills in the rest)
         auto tls_json = http_config_json.value("tls", nlohmann::json::object());
@@ -264,6 +266,10 @@ int main(int argc, char* argv[]) {
             protocol->start();
         });
     }
+
+    // Register signal handlers for graceful shutdown
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
 
     // Wait for shutdown signal
     while (g_running) {

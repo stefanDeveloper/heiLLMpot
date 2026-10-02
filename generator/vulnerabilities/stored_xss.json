@@ -1,0 +1,11 @@
+{
+  "type": "Stored Cross-Site Scripting (XSS)",
+  "description": "Stored XSS in a user profile, comment section, or support ticket.",
+  "target_route": "/profile or /tickets",
+  "parameter": "bio or message",
+  "exploit_hint": "Inject <script>alert(document.cookie)</script> into a saved field.",
+  "requirements": [
+    "The application should not sanitize or escape user input before rendering it back to other users.",
+    "The XSS payload must be persistent (saved to a 'database' and re-rendered)."
+  ]
+}

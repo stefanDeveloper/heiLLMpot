@@ -29,5 +29,10 @@
     "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"
   ],
   "tls_country": "",
+  "offerings_label": "Programmes & Courses",
+  "personnel_label": "Faculty & Staff",
+  "personnel_role_filter": ["professor", "staff", "researcher"],
+  "dashboard_persona": "student",
+  "dashboard_tabs": ["My Courses", "Grades & Transcripts", "Timetable"],
   "notes": "Realistic university portals: student/staff login, LMS, research portals."
 }

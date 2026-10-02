@@ -1,6 +1,13 @@
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16-alpine
+    logging: *default-logging
     container_name: honeypot_postgres
     restart: unless-stopped
     environment:
@@ -21,6 +28,7 @@ services:
     build:
       context: ./orchestrator
       dockerfile: Dockerfile
+    logging: *default-logging
     container_name: honeypot_orchestrator
     restart: unless-stopped
     depends_on:
@@ -55,6 +63,7 @@ services:
 
   nginx:
     image: nginx:1.27-alpine
+    logging: *default-logging
     container_name: honeypot_nginx
     restart: unless-stopped
     depends_on:
@@ -65,6 +74,7 @@ services:
       - "${ORCHESTRATOR_HTTP_PORT:-80}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/sites.tar.gz:/var/www/sites.tar.gz:ro
       - ./certs/server.crt:/etc/nginx/ssl/server.crt:ro
       - ./certs/server.key:/etc/nginx/ssl/server.key:ro
       - ./certs/ca.crt:/etc/nginx/ssl/ca.crt:ro
@@ -81,6 +91,7 @@ services:
     build:
       context: .
       dockerfile: dashboard/Dockerfile
+    logging: *default-logging
     container_name: honeypot_dashboard
     restart: unless-stopped
     depends_on:
@@ -111,6 +122,8 @@ services:
     build:
       context: ./honeybot
       dockerfile: Dockerfile
+    image: ${HONEYBOT_IMAGE:-heillmpot/honeybot:latest}
+    logging: *default-logging
     container_name: honeypot_node
     restart: unless-stopped
     depends_on:
@@ -125,7 +138,7 @@ services:
       HTTP_ENABLE_HTTPS: ${HONEYPOT_ENABLE_HTTPS:-true}
       SSH_ENABLED: ${HONEYPOT_SSH_ENABLED:-false}
       ORCHESTRATOR_ENABLED: ${HONEYPOT_ORCHESTRATOR_ENABLED:-true}
-      ORCHESTRATOR_URL: http://orchestrator:8080
+      ORCHESTRATOR_URL: ${ORCHESTRATOR_URL:-http://orchestrator:8080}
       NODE_ID: ${NODE_ID:-node-local-1}
       JWT_TOKEN: ${JWT_TOKEN:-}
       CLIENT_CERT: /app/certs/${NODE_ID:-node-local-1}.crt

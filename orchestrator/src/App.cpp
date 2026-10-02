@@ -19,6 +19,7 @@
 #include "controller/SessionController.hpp"
 #include "db/DbClient.hpp"
 #include "worker/ClassificationWorker.hpp"
+#include "worker/EventQueueWorker.hpp"
 
 #include "oatpp-swagger/Controller.hpp"
 #include "oatpp/network/Server.hpp"
@@ -71,6 +72,8 @@ void applyEnvOverrides(const std::shared_ptr<OrchestratorConfig>& cfg) {
     cfg->geoip_db_path       = envString("GEOIP_DB_PATH", cfg->geoip_db_path);
     cfg->geoip_asn_path      = envString("GEOIP_ASN_PATH", cfg->geoip_asn_path);
     cfg->worker_interval_sec = envInt("WORKER_INTERVAL_SEC", cfg->worker_interval_sec);
+    cfg->retention_days      = envInt("RETENTION_DAYS", cfg->retention_days);
+    cfg->max_db_size_gb      = envInt("MAX_DB_SIZE_GB", cfg->max_db_size_gb);
 }
 
 }  // namespace
@@ -99,6 +102,8 @@ void loadConfig(const std::string& path,
     cfg->geoip_db_path        = j.value("geoip_db_path",         cfg->geoip_db_path);
     cfg->geoip_asn_path       = j.value("geoip_asn_path",        cfg->geoip_asn_path);
     cfg->worker_interval_sec  = j.value("worker_interval_sec",   cfg->worker_interval_sec);
+    cfg->retention_days       = j.value("retention_days",        cfg->retention_days);
+    cfg->max_db_size_gb       = j.value("max_db_size_gb",        cfg->max_db_size_gb);
 
     applyEnvOverrides(cfg);
 }
@@ -117,6 +122,13 @@ void run(const std::string& configPath) {
     // ── Database ──────────────────────────────────────────────────────────────────────────────────
     DatabaseComponent dbComponent;  // registers DbClient, runs migration
     OATPP_COMPONENT(std::shared_ptr<DbClient>, db);
+    
+    auto eventQueue = std::make_shared<EventQueueWorker>(db);
+    OATPP_CREATE_COMPONENT(std::shared_ptr<EventQueueWorker>, eventQueueComponent)(eventQueue);
+    eventQueue->start();
+
+    ClassificationWorker classWorker(db);
+    classWorker.start();
     OATPP_LOGI("App", "Database connected and schema applied");
 
     // ── Swagger components (must be before swagger controller) ────────────────────────────────────
@@ -159,10 +171,6 @@ void run(const std::string& configPath) {
     OATPP_COMPONENT(std::shared_ptr<oatpp::data::mapping::ObjectMapper>, mapper);
     connectionHandler->setErrorHandler(std::make_shared<ErrorHandler>(mapper));
 
-    // ── Background classification worker ──────────────────────────────────────
-    ClassificationWorker worker(db);
-    worker.start();
-
     // ── Server ────────────────────────────────────────────────────────────────
     OATPP_COMPONENT(std::shared_ptr<oatpp::network::ServerConnectionProvider>, provider);
     oatpp::network::Server server(provider, connectionHandler);
@@ -188,11 +196,13 @@ void run(const std::string& configPath) {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
-    worker.stop();
     server.stop();
     provider->stop();
 
     if (serverThread.joinable()) serverThread.join();
+    classWorker.stop();
+    eventQueue->stop();
+
     OATPP_LOGI("App", "Orchestrator stopped gracefully");
 }
 

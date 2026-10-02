@@ -39,6 +39,7 @@ public:
         std::string tls_country = "";
         std::string tls_state = "";
         std::string tls_locality = "";
+        std::string active_site = "";
     };
 
     explicit HttpHoneypot(const Config& config);
@@ -64,12 +65,22 @@ private:
         nlohmann::json ssh_profile;  // SSH profile for paired SSH honeypot
         // routes[path][method] = HTML body
         std::map<std::string, std::map<std::string, std::string>> routes;
+        // routes[path] = auth_required (true/false)
+        std::map<std::string, bool> auth_required;
+
+        // REST API endpoint data (loaded from api_routes.json)
+        nlohmann::json api_routes;   // full parsed api_routes.json
+        // Valid user credentials for login validation (from users.json)
+        std::map<std::string, std::string> valid_users;  // username -> password
+
     };
 
     struct SessionState {
         bool authenticated = false;
         std::string username;
         std::string session_cookie;
+        std::string next_url;
+        int login_attempts = 0;       // track brute-force count per session
     };
 
     // ─── Methods ────────────────────────────────────────────────────────
@@ -79,7 +90,15 @@ private:
     void setup_routes(httplib::Server& server);
     void handle_request(const httplib::Request& req, httplib::Response& res,
                         const std::string& method);
+    void handle_api_request(const httplib::Request& req, httplib::Response& res,
+                            const std::string& method, SiteData* site,
+                            const std::string& session_id);
+    void handle_login_post(const httplib::Request& req, httplib::Response& res,
+                           SiteData* site, const std::string& session_id);
+    bool check_sqli_leak(const std::string& input, httplib::Response& res, SiteData* site);
     void apply_fingerprint(httplib::Response& res);
+    void add_adaptive_jitter(const std::string& path, const std::string& method,
+                             int login_attempts = 0);
     void add_timing_jitter();
     std::string generate_session_id();
     std::string get_or_create_session(const httplib::Request& req,

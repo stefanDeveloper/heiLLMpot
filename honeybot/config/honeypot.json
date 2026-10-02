@@ -13,6 +13,7 @@
     "jitter_min_ms": 20,
     "jitter_max_ms": 200,
     "rotate_sites": false,
+    "active_site": "",
     "tls": {
       "cn": "",
       "organization": "",

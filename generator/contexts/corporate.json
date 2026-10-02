@@ -30,5 +30,10 @@
     "SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u3"
   ],
   "tls_country": "",
+  "offerings_label": "Services & Solutions",
+  "personnel_label": "Our Team",
+  "personnel_role_filter": ["employee", "manager", "contractor", "it_support", "executive"],
+  "dashboard_persona": "employee",
+  "dashboard_tabs": ["My Projects", "Tasks & Tickets", "Reports"],
   "notes": "Enterprise corporate portals: ERP, HR, file sharing, helpdesk."
 }

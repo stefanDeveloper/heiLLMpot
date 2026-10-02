@@ -1,0 +1,13 @@
+{
+  "type": "Broken Authentication — Weak Credentials",
+  "description": "The application uses predictable, weak, or default credentials for one or more user accounts. Admin and service accounts have passwords that match common wordlists (e.g. 'admin', 'password', 'Welcome1'). There is no account lockout or rate limiting on the login endpoint, making brute-force trivially effective.",
+  "target_route": "/login",
+  "parameter": "username",
+  "exploit_hint": "POST /login with username=admin&password=admin (or other role-account combos from the users list). The server responds with a 200 OK and redirects to the dashboard without any rate limit, lockout, or CAPTCHA.",
+  "requirements": [
+    "ALL user accounts MUST have short, common, or guessable passwords (e.g. 'admin', 'password123', 'Welcome1').",
+    "The /login endpoint MUST NOT implement rate limiting, account lockout, or CAPTCHA.",
+    "A successful login MUST produce an obvious success indicator in the response body (e.g., 'Welcome, Admin' or a redirect to /dashboard).",
+    "The login form MUST NOT use CSRF tokens or any anti-automation measure."
+  ]
+}

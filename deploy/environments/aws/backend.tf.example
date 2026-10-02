@@ -1,0 +1,18 @@
+# To preserve your Terraform state across different environments and prevent data loss,
+# we recommend using a remote backend (e.g., AWS S3).
+#
+# IMPORTANT: DO NOT commit terraform.tfstate or any .tfstate files to git, 
+# as they contain sensitive information (e.g., generated private keys).
+#
+# To use this S3 backend, copy this file to `backend.tf`, update the bucket name and region, 
+# and run `terraform init`.
+
+terraform {
+  backend "s3" {
+    bucket         = "my-heillmpot-terraform-state-bucket" # Replace with your S3 bucket name
+    key            = "heillmpot/aws/terraform.tfstate"
+    region         = "eu-west-1" # Replace with your bucket's region
+    encrypt        = true
+    # dynamodb_table = "terraform-state-lock" # Optional: for state locking
+  }
+}

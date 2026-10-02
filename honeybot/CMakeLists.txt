@@ -12,7 +12,8 @@ if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
 endif()
 
 # ─── Dependencies (all via vcpkg) ────────────────────────────────────────────
-find_package(httplib    CONFIG REQUIRED)   # cpp-httplib
+# cpp-httplib (vendored in third_party)
+# find_package(httplib    CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(OpenSSL    REQUIRED)
 find_package(Threads    REQUIRED)
@@ -31,6 +32,7 @@ add_executable(honeypot
 target_include_directories(honeypot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
 # cpp-httplib needs CPPHTTPLIB_OPENSSL_SUPPORT to enable HTTPS (SSLClient)
@@ -39,7 +41,6 @@ target_compile_definitions(honeypot PRIVATE
 )
 
 target_link_libraries(honeypot PRIVATE
-    httplib::httplib
     nlohmann_json::nlohmann_json
     OpenSSL::SSL
     OpenSSL::Crypto

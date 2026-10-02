@@ -1,0 +1,13 @@
+{
+  "type": "Path Traversal / Local File Inclusion (LFI)",
+  "description": "Path traversal in a file download or document viewer endpoint. The application accepts a filename or path parameter and reads files from the server filesystem without sanitizing directory separators. An attacker can request ../../../../etc/passwd or similar to read arbitrary files.",
+  "target_route": "/download",
+  "parameter": "file",
+  "exploit_hint": "Request /download?file=../../../../etc/passwd or /download?file=..%2F..%2F..%2Fetc%2Fpasswd to read the server's /etc/passwd. The application echoes the raw file content to the response.",
+  "requirements": [
+    "The endpoint MUST accept a 'file' (or 'path', 'doc', 'resource') GET parameter.",
+    "The server code MUST NOT sanitize or restrict the path — no realpath() or chroot.",
+    "The response MUST reflect the raw file content (e.g., print the file to the page or serve it as a download).",
+    "Include a realistic file listing UI (e.g., course materials, reports) so the vulnerable parameter blends in."
+  ]
+}

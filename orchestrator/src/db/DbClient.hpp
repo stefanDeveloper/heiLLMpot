@@ -12,13 +12,25 @@
 #include "dto/Dtos.hpp"
 #include "../ConfigComponent.hpp"
 
-/// Holds resolved GeoIP information for a client IP.
 struct GeoInfo {
     std::string country;
     std::string country_iso;
     std::string city;
     int         asn  = 0;
     std::string org;
+};
+
+struct ScanEventData {
+    std::string session_uuid;
+    std::string node_id;
+    std::string protocol;
+    std::string event_type;
+    std::string occurred_at;
+    std::string raw_json;
+    std::string method;
+    std::string path;
+    int status_code = 0;
+    std::string user_agent;
 };
 
 /// PostgreSQL database client.
@@ -77,6 +89,8 @@ public:
                             const std::string& user_agent,
                             const std::string& occurred_at);
 
+    void insertEventsBatch(const std::vector<ScanEventData>& events);
+
     // ── Classification ───────────────────────────────────────────────────────
     void upsertClassification(const std::string& session_uuid,
                                const std::string& label,
@@ -94,6 +108,8 @@ public:
     // ── Statistics ───────────────────────────────────────────────────────────
     oatpp::Object<StatsResponseDto> getStats(const std::string& from_date,
                                                const std::string& to_date);
+    void        pruneOldSessions(int retentionDays);
+    void        pruneBySize(int max_db_size_gb);
 
     // ── GeoIP ────────────────────────────────────────────────────────────────
     GeoInfo geoLookup(const std::string& ip);

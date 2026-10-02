@@ -1,0 +1,13 @@
+{
+  "type": "Open Redirect",
+  "description": "Open redirect in a login redirect or 'next' parameter. After authentication the application redirects the user to a URL supplied in a GET/POST parameter (e.g. ?next=, ?redirect=, ?url=) without validating that the destination is on the same domain. An attacker can craft a phishing link that sends victims to an arbitrary external site after a seemingly legitimate login.",
+  "target_route": "/login",
+  "parameter": "next",
+  "exploit_hint": "Submit /login?next=https://attacker.example.com. After a successful (or even failed) login, the server should redirect to the arbitrary URL in the 'next' parameter.",
+  "requirements": [
+    "The /login endpoint MUST accept a 'next' (or 'redirect', 'url', 'return') GET parameter.",
+    "After processing the login form the server MUST redirect to whatever URL is in that parameter.",
+    "The server MUST NOT check that the redirect target is on the same origin or whitelist.",
+    "Include a realistic 'Remember where you were going' UX comment in the HTML to explain the parameter's presence."
+  ]
+}

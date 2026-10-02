@@ -29,5 +29,10 @@
     "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"
   ],
   "tls_country": "",
+  "offerings_label": "Products & Services",
+  "personnel_label": "Leadership & Advisors",
+  "personnel_role_filter": ["teller", "loan_officer", "compliance_officer", "relationship_manager"],
+  "dashboard_persona": "officer",
+  "dashboard_tabs": ["Accounts", "Transactions", "Compliance"],
   "notes": "Financial institution portals with realistic banking workflows."
 }

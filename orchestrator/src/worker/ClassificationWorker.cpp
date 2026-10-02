@@ -22,8 +22,15 @@ void ClassificationWorker::stop() {
 }
 
 void ClassificationWorker::loop() {
+    int iterCount = 0;
     while (m_running) {
         try {
+            if (iterCount % 10 == 0 && m_config->retention_days > 0) {
+                m_db->pruneOldSessions(m_config->retention_days);
+                m_db->pruneBySize(m_config->max_db_size_gb);
+            }
+            iterCount++;
+
             auto ids = m_db->getUnclassifiedSessionIds(100);
             for (auto& uuid : ids) {
                 if (!m_running) break;
